@@ -10,9 +10,9 @@ set(BISON_OUTPUT_GRAPH OFF CACHE BOOL "Enable/Disable output of a graph of the a
 # 是否使用GravphViz库
 set(USE_GRAPHVIZ ON CACHE BOOL "Enable/Disable GraphViz")
 
-# 默认设置为ON，这里可注释掉。开启时会产生compile_commands.json的文件，有了这个文件才能识别出clang-tidy的配置
+# 开启时会产生compile_commands.json的文件，有了这个文件才能识别出clang-tidy的配置
 # Generates a `compile_commands.json` that can be used for autocompletion
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Enable/Disable output of compile commands during generation.")
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # 这个目前没有用处，可删除
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
@@ -313,6 +313,9 @@ add_custom_target(FLEX_GEN
 	${FLEX_INPUT}
 	WORKING_DIRECTORY
 	${FLEX_GEN_DIR}
+	COMMENT
+	"flex generate"
+	VERBATIM
 )
 
 # 通过bison生成语法分析源代码
@@ -323,13 +326,16 @@ add_custom_target(BISON_GEN
 	${BISON_INPUT}
 	WORKING_DIRECTORY
 	${BISON_GEN_DIR}
+	COMMENT
+	"bison generate"
+	VERBATIM
 )
 
 add_dependencies(${PROJECT_NAME} BISON_GEN FLEX_GEN)
 
 if(BISON_OUTPUT_GRAPH)
 	# 转换dot文件成png文件
-	add_custom_target(BISON_DOT
+	add_custom_target(BISON_DOT2PNG
 		COMMAND
 		dot -Tpng -o ${BISON_GEN_DIR}/MiniCBison.png ${BISON_GEN_DIR}/MiniCBison.dot
 		DEPENDS ${BISON_GEN_DIR}/MiniCBison.dot
@@ -337,21 +343,36 @@ if(BISON_OUTPUT_GRAPH)
 		"dot2png"
 		VERBATIM
 	)
-	add_dependencies(BISON_DOT BISON_GEN)
-	add_dependencies(${PROJECT_NAME} BISON_DOT)
+	add_dependencies(BISON_DOT2PNG BISON_GEN)
+	add_dependencies(${PROJECT_NAME} BISON_DOT2PNG)
 endif()
 
 # 通过antlr4.12.0生成词法与语法分析源代码
 # WORKING_DIRECTORY指定工作目录时Mac平台有问题，因此使用绝对地址
-add_custom_command(
-	OUTPUT
-	${ANTLR4_OUTPUT}
+add_custom_target(ANTLR4_GEN
 	COMMAND
 	${Java_JAVA_EXECUTABLE} -jar ${ANTLR4_JAR_LOCATION} -Dlanguage=Cpp -no-listener -visitor -o ${ANTLR4_GEN_DIR} MiniC.g4
 	DEPENDS
 	${ANTLR4_INPUT}
 	WORKING_DIRECTORY
 	${ANTLR4_GEN_DIR}/..
+	COMMENT
+	"antlr4 generate"
+	VERBATIM
+)
+
+add_dependencies(${PROJECT_NAME} ANTLR4_GEN)
+
+add_custom_command(TARGET ${PROJECT_NAME}
+	POST_BUILD
+	COMMAND_EXPAND_LISTS
+	COMMAND
+	${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_BINARY_DIR}/compile_commands.json ${CMAKE_CURRENT_SOURCE_DIR}/build/
+	COMMAND
+	${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:${PROJECT_NAME}> ${CMAKE_CURRENT_SOURCE_DIR}/build/
+	COMMENT
+	"compile_commands.json copy to build"
+	VERBATIM
 )
 
 # 源代码打包
