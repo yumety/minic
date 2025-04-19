@@ -603,10 +603,17 @@ sudo apt install -y clang-format clang-tidy
 
 ```shell
 # cmake根据CMakeLists.txt进行配置与检查，这里使用clang编译器并且是Debug模式
-cmake -B build -S . -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER:FILEPATH=/usr/bin/clang++
+cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER:FILEPATH=/usr/bin/clang++
 # cmake，其中--parallel说明是并行编译，也可用-j选项
 cmake --build build --parallel
 ```
+
+说明：
+* -DCMAKE_CXX_COMPILER:FILEPATH=/usr/bin/clang++，指定构建程序所有的C++编译器，这里是/usr/bin/clang++，其中冒号后的FILEPATH来指定值的类型，即文件路径，可不写。
+* -DCMAKE_BUILD_TYPE=Debug 指定构建出的程序为Debug版，程序带有调试信息，可进行C/C++源代码调试，并且没有开启优化
+* -G Ninja指定构建所用的产生器，Linux系统默认为Unix Makefiles，这里采用Ninja。
+
+Ninja是一个专注于速度的小型构建系统，旨在通过并行构建来提高构建效率。它通常用于替代传统的Makefile系统。
 
 ## 1.6. 使用方法
 
