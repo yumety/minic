@@ -47,7 +47,7 @@ find_package(FLEX REQUIRED)
 find_package(BISON REQUIRED)
 
 # 设置antlr-4.12.0-complete的位置
-set(ANTLR4_VERSION 4.13.2 CACHE STRING "ANTLR4 version")
+set(ANTLR4_VERSION 4.12.0 CACHE STRING "ANTLR4 version")
 set(ANTLR4_JAR_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/antlr4/antlr-${ANTLR4_VERSION}-complete.jar)
 
 # 查找antlr4-runtime包是否存在，若不存在则出错。目的用于本程序与Antlr4进行链接
