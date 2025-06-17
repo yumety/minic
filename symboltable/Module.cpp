@@ -18,6 +18,7 @@
 #include "ScopeStack.h"
 #include "Common.h"
 #include "VoidType.h"
+#include "ArrayType.h"
 
 Module::Module(std::string _name) : name(_name)
 {
@@ -30,6 +31,20 @@ Module::Module(std::string _name) : name(_name)
     // 加入内置函数putint
     (void) newFunction("putint", VoidType::getType(), {new FormalParam{IntegerType::getTypeInt(), ""}}, true);
     (void) newFunction("getint", IntegerType::getTypeInt(), {}, true);
+	(void) newFunction("putch", VoidType::getType(), {new FormalParam{IntegerType::getTypeInt(), ""}}, true);
+
+    // 加入新的内置函数
+    // getarray(int a[]) - 从输入读取数组，返回读取的元素个数
+    (void) newFunction("getarray", IntegerType::getTypeInt(),
+                      {new FormalParam{new ArrayType(IntegerType::getTypeInt(), {0}), ""}}, true);
+
+    // putarray(int n, int a[]) - 输出数组的前n个元素
+    (void) newFunction("putarray", VoidType::getType(),
+                      {new FormalParam{IntegerType::getTypeInt(), ""},
+                       new FormalParam{new ArrayType(IntegerType::getTypeInt(), {0}), ""}}, true);
+
+    // getch() - 读取一个字符，返回字符的ASCII值
+    (void) newFunction("getch", IntegerType::getTypeInt(), {}, true);
 }
 
 /// @brief 进入作用域，如进入函数体块、语句块等

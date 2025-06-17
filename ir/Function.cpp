@@ -19,6 +19,7 @@
 
 #include "IRConstant.h"
 #include "Function.h"
+#include "ArrayType.h"
 
 /// @brief 指定函数名字、函数类型的构造函数
 /// @param _name 函数名称
@@ -91,7 +92,23 @@ void Function::toString(std::string & str)
             str += ", ";
         }
 
-        std::string param_str = param->getType()->toString() + param->getIRName();
+        std::string param_str;
+
+        // 对于数组类型参数，需要特殊处理格式：i32 %t0[0][5]
+        if (param->getType()->isArrayType()) {
+            ArrayType *arrayType = static_cast<ArrayType*>(param->getType());
+            std::string elementType = arrayType->getElementType()->toString();
+            std::string varName = param->getIRName();
+
+            // 添加维度信息到变量名
+            for (int32_t dim : arrayType->getDimensions()) {
+                varName += "[" + std::to_string(dim) + "]";
+            }
+
+            param_str = elementType + " " + varName;
+        } else {
+            param_str = param->getType()->toString() + " " + param->getIRName();
+        }
 
         str += param_str;
     }
@@ -104,7 +121,22 @@ void Function::toString(std::string & str)
     for (auto & var: this->varsVector) {
 
         // 局部变量和临时变量需要输出declare语句
-        str += "\tdeclare " + var->getType()->toString() + " " + var->getIRName();
+        // 对于数组类型，需要特殊处理格式：declare i32 %l1[10][10]
+        if (var->getType()->isArrayType()) {
+            ArrayType *arrayType = static_cast<ArrayType*>(var->getType());
+            std::string elementType = arrayType->getElementType()->toString();
+            std::string varName = var->getIRName();
+
+            // 添加维度信息到变量名
+            for (int32_t dim : arrayType->getDimensions()) {
+                varName += "[" + std::to_string(dim) + "]";
+            }
+
+            str += "\tdeclare " + elementType + " " + varName;
+        } else {
+            // 对于指针类型，PointerType::toString() 已经返回正确格式（如 i32*）
+            str += "\tdeclare " + var->getType()->toString() + " " + var->getIRName();
+        }
 
         std::string extraStr;
         std::string realName = var->getName();
@@ -121,8 +153,30 @@ void Function::toString(std::string & str)
 
         if (inst->hasResultValue()) {
 
+            // 检查是否是ArraySliceInstruction，如果是则跳过declare语句
+            // 因为ArraySliceInstruction使用的是地址的名称，不需要单独的declare
+            if (inst->getOp() == IRInstOperator::IRINST_OP_ASSIGN &&
+                inst->getType()->isArrayType()) {
+                // 这是ArraySliceInstruction，跳过declare语句
+                continue;
+            }
+
             // 局部变量和临时变量需要输出declare语句
-            str += "\tdeclare " + inst->getType()->toString() + " " + inst->getIRName() + "\n";
+            // 对于数组类型，需要特殊处理格式：declare i32 %t1[10][10]
+            if (inst->getType()->isArrayType()) {
+                ArrayType *arrayType = static_cast<ArrayType*>(inst->getType());
+                std::string elementType = arrayType->getElementType()->toString();
+                std::string varName = inst->getIRName();
+
+                // 添加维度信息到变量名
+                for (int32_t dim : arrayType->getDimensions()) {
+                    varName += "[" + std::to_string(dim) + "]";
+                }
+
+                str += "\tdeclare " + elementType + " " + varName + "\n";
+            } else {
+                str += "\tdeclare " + inst->getType()->toString() + " " + inst->getIRName() + "\n";
+            }
         }
     }
 

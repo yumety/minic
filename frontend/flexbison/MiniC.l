@@ -50,6 +50,22 @@
 "+"         { return T_ADD; }
 "-"         { return T_SUB; }
 
+"*"         { return T_MUL; }
+"/"         { return T_DIV; }
+"%"         { return T_MOD; }
+
+
+0[xX][0-9a-fA-F]+ {
+    			yylval.integer_num.val = (uint32_t)strtol(yytext, (char **)NULL, 16);
+    			yylval.integer_num.lineno = yylineno;
+    			return T_DIGIT;
+}
+
+0[0-7]* {
+				yylval.integer_num.val = (uint32_t)strtol(yytext, (char **)NULL, 8);
+				yylval.integer_num.lineno = yylineno;
+				return T_DIGIT;
+}
 
 "0"|[1-9][0-9]*	{
                 // 词法识别无符号整数，注意对于负数，则需要识别为负号和无符号数两个Token

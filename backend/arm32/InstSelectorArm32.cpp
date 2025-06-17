@@ -43,12 +43,22 @@ InstSelectorArm32::InstSelectorArm32(vector<Instruction *> & _irCode,
     translator_handlers[IRInstOperator::IRINST_OP_EXIT] = &InstSelectorArm32::translate_exit;
 
     translator_handlers[IRInstOperator::IRINST_OP_LABEL] = &InstSelectorArm32::translate_label;
-    translator_handlers[IRInstOperator::IRINST_OP_GOTO] = &InstSelectorArm32::translate_goto;
+    // translator_handlers[IRInstOperator::IRINST_OP_GOTO] = &InstSelectorArm32::translate_goto;
+	translator_handlers[IRInstOperator::IRINST_OP_GOTO] = &InstSelectorArm32::translate_br;
 
     translator_handlers[IRInstOperator::IRINST_OP_ASSIGN] = &InstSelectorArm32::translate_assign;
 
     translator_handlers[IRInstOperator::IRINST_OP_ADD_I] = &InstSelectorArm32::translate_add_int32;
     translator_handlers[IRInstOperator::IRINST_OP_SUB_I] = &InstSelectorArm32::translate_sub_int32;
+	translator_handlers[IRInstOperator::IRINST_OP_MUL_I] = &InstSelectorArm32::translate_mul_int32;
+	translator_handlers[IRInstOperator::IRINST_OP_DIV_I] = &InstSelectorArm32::translate_div_int32;
+	translator_handlers[IRInstOperator::IRINST_OP_MOD_I] = &InstSelectorArm32::translate_mod_int32;
+	translator_handlers[IRInstOperator::IRINST_OP_LT_I] = &InstSelectorArm32::translate_lt_int32;
+	translator_handlers[IRInstOperator::IRINST_OP_GT_I] = &InstSelectorArm32::translate_gt_int32;
+	translator_handlers[IRInstOperator::IRINST_OP_LE_I] = &InstSelectorArm32::translate_le_int32;
+	translator_handlers[IRInstOperator::IRINST_OP_GE_I] = &InstSelectorArm32::translate_ge_int32;
+	translator_handlers[IRInstOperator::IRINST_OP_EQ_I] = &InstSelectorArm32::translate_eq_int32;
+	translator_handlers[IRInstOperator::IRINST_OP_NE_I] = &InstSelectorArm32::translate_ne_int32;
 
     translator_handlers[IRInstOperator::IRINST_OP_FUNC_CALL] = &InstSelectorArm32::translate_call;
     translator_handlers[IRInstOperator::IRINST_OP_ARG] = &InstSelectorArm32::translate_arg;
@@ -124,15 +134,61 @@ void InstSelectorArm32::translate_label(Instruction * inst)
     iloc.label(labelInst->getName());
 }
 
-/// @brief goto指令指令翻译成ARM32汇编
-/// @param inst IR指令
-void InstSelectorArm32::translate_goto(Instruction * inst)
-{
-    Instanceof(gotoInst, GotoInstruction *, inst);
+// /// @brief goto指令指令翻译成ARM32汇编
+// /// @param inst IR指令
+// void InstSelectorArm32::translate_goto(Instruction * inst)
+// {
+//     Instanceof(gotoInst, GotoInstruction *, inst);
 
-    // 无条件跳转
-    iloc.jump(gotoInst->getTarget()->getName());
+//     // 无条件跳转
+//     iloc.jump(gotoInst->getTrueTarget()->getName());
+// }
+
+/// @brief bc/br 指令翻译成 ARM32 汇编
+/// @param inst IR 指令（GotoInstruction）
+void InstSelectorArm32::translate_br(Instruction * inst)
+{
+    // 确保它是我们的 GotoInstruction
+    auto * brInst = static_cast<GotoInstruction*>(inst);
+
+    Value * cond = brInst->getCond();
+    // 真假目标
+    auto * Ltrue  = brInst->getTrueTarget();
+    auto * Lfalse = brInst->getFalseTarget();
+
+    if (!cond) {
+        // —— 无条件跳转 —— 
+        // 直接 b label
+        iloc.jump(Ltrue->getName());
+    } else {
+        // —— 有条件跳转 bc —— 
+        // 1) 把 cond 装入寄存器
+        int condReg = cond->getRegId();
+        int loadReg;
+        if (condReg == -1) {
+            // cond 未在寄存器里，分配一个再 load
+            loadReg = simpleRegisterAllocator.Allocate(cond);
+            iloc.load_var(loadReg, cond);
+        } else {
+            loadReg = condReg;
+        }
+        std::string rCond = PlatformArm32::regName[loadReg];
+
+        // 2) cmp rCond, #0
+        iloc.inst("cmp", rCond, "#0");
+
+        // 3) cond 为真 跳 Ltrue：bne Ltrue
+        iloc.inst("bne", Ltrue->getName());
+
+        // 4) cond 为假 跳 Lfalse：b Lfalse
+        iloc.jump(Lfalse->getName());
+
+        // 5) 如果 cond 是临时寄存器，释放掉
+        simpleRegisterAllocator.free(cond);
+    }
 }
+
+
 
 /// @brief 函数入口指令翻译成ARM32汇编
 /// @param inst IR指令
@@ -301,6 +357,187 @@ void InstSelectorArm32::translate_add_int32(Instruction * inst)
 void InstSelectorArm32::translate_sub_int32(Instruction * inst)
 {
     translate_two_operator(inst, "sub");
+}
+
+/// @brief 整数乘法指令翻译成ARM32汇编
+/// @param inst IR指令
+void InstSelectorArm32::translate_mul_int32(Instruction * inst)
+{
+    translate_two_operator(inst, "mul");
+}
+
+/// @brief 整数除法指令翻译成ARM32汇编
+/// @param inst IR指令
+void InstSelectorArm32::translate_div_int32(Instruction * inst)
+{
+    translate_two_operator(inst, "sdiv");
+}
+
+/// @brief 整数取余指令翻译成ARM32汇编
+/// @param inst IR指令
+void InstSelectorArm32::translate_mod_int32(Instruction * inst)
+{
+    Value * result = inst;
+    Value * arg1 = inst->getOperand(0);
+    Value * arg2 = inst->getOperand(1);
+
+    int32_t arg1_reg_no = arg1->getRegId();
+    int32_t arg2_reg_no = arg2->getRegId();
+    int32_t result_reg_no = inst->getRegId();
+    int32_t load_result_reg_no, load_arg1_reg_no, load_arg2_reg_no;
+
+    // arg1: 加载到寄存器
+    if (arg1_reg_no == -1) {
+        load_arg1_reg_no = simpleRegisterAllocator.Allocate(arg1);
+        iloc.load_var(load_arg1_reg_no, arg1);
+    } else {
+        load_arg1_reg_no = arg1_reg_no;
+    }
+
+    // arg2: 加载到寄存器
+    if (arg2_reg_no == -1) {
+        load_arg2_reg_no = simpleRegisterAllocator.Allocate(arg2);
+        iloc.load_var(load_arg2_reg_no, arg2);
+    } else {
+        load_arg2_reg_no = arg2_reg_no;
+    }
+
+    // result: 如果不是寄存器则分配一个
+    if (result_reg_no == -1) {
+        load_result_reg_no = simpleRegisterAllocator.Allocate(result);
+    } else {
+        load_result_reg_no = result_reg_no;
+    }
+
+    // 分配中间寄存器
+    int32_t div_reg = simpleRegisterAllocator.Allocate(nullptr);  // 商
+    int32_t mul_reg = simpleRegisterAllocator.Allocate(nullptr);  // 商 × 除数
+
+    // sdiv div_reg, arg1, arg2
+    iloc.inst("sdiv",
+        PlatformArm32::regName[div_reg],
+        PlatformArm32::regName[load_arg1_reg_no],
+        PlatformArm32::regName[load_arg2_reg_no]);
+
+    // mul mul_reg, div_reg, arg2
+    iloc.inst("mul",
+        PlatformArm32::regName[mul_reg],
+        PlatformArm32::regName[div_reg],
+        PlatformArm32::regName[load_arg2_reg_no]);
+
+    // sub result_reg, arg1, mul_reg
+    iloc.inst("sub",
+        PlatformArm32::regName[load_result_reg_no],
+        PlatformArm32::regName[load_arg1_reg_no],
+        PlatformArm32::regName[mul_reg]);
+
+    // 如果结果不是寄存器，要写回内存
+    if (result_reg_no == -1) {
+        iloc.store_var(load_result_reg_no, result, ARM32_TMP_REG_NO);
+    }
+
+    // 释放所有分配的寄存器
+    simpleRegisterAllocator.free(arg1);
+    simpleRegisterAllocator.free(arg2);
+    simpleRegisterAllocator.free(result);
+    simpleRegisterAllocator.free(nullptr);  // div_reg
+    simpleRegisterAllocator.free(nullptr);  // mul_reg
+}
+
+/// @brief 通用比较运算翻译
+/// @param inst        IR 指令（也是 Value*）
+/// @param condSuffix 比较条件后缀："lt","gt","le","ge","eq","ne"
+void InstSelectorArm32::translate_cmp_operator(Instruction * inst, string condSuffix) {
+    // Instruction 本身也是 Value
+    Value   *result = inst;
+    Value   *arg1   = inst->getOperand(0);
+    Value   *arg2   = inst->getOperand(1);
+
+    // 查看它们是否已经在寄存器里
+    int r1 = arg1->getRegId();
+    int r2 = arg2->getRegId();
+    int rd = result->getRegId();
+
+    int load_r1, load_r2, load_rd;
+
+    // 如果 arg1 不在寄存器，分配一个并 load
+    if (r1 == -1) {
+        load_r1 = simpleRegisterAllocator.Allocate(arg1);
+        iloc.load_var(load_r1, arg1);
+    } else {
+        load_r1 = r1;
+    }
+
+    // arg2 同理
+    if (r2 == -1) {
+        load_r2 = simpleRegisterAllocator.Allocate(arg2);
+        iloc.load_var(load_r2, arg2);
+    } else {
+        load_r2 = r2;
+    }
+
+    // 结果如果不在寄存器，也要分配一个暂存
+    if (rd == -1) {
+        load_rd = simpleRegisterAllocator.Allocate(result);
+    } else {
+        load_rd = rd;
+    }
+
+    // 1) 比较指令
+    iloc.inst("cmp",
+              PlatformArm32::regName[load_r1],
+              PlatformArm32::regName[load_r2]);
+
+    // 2) 先把结果置为 0
+    iloc.inst("mov",
+              PlatformArm32::regName[load_rd],
+              "#0");
+
+    // 3) 根据 condSuffix 置为 1
+    //    e.g. movlt rD, #1   // if r1<r2
+    iloc.inst("mov" + condSuffix,
+              PlatformArm32::regName[load_rd],
+              "#1");
+
+    // 如果原来 result 不在寄存器，要把暂存寄存器存回内存
+    if (rd == -1) {
+        iloc.store_var(load_rd, result, ARM32_TMP_REG_NO);
+    }
+
+    // 释放分配的寄存器
+    simpleRegisterAllocator.free(arg1);
+    simpleRegisterAllocator.free(arg2);
+    simpleRegisterAllocator.free(result);
+}
+
+/// @brief 整数小于比较翻译成ARM32汇编
+void InstSelectorArm32::translate_lt_int32(Instruction * inst) {
+    translate_cmp_operator(inst, "lt");
+}
+
+/// @brief 整数大于比较翻译成ARM32汇编
+void InstSelectorArm32::translate_gt_int32(Instruction * inst) {
+    translate_cmp_operator(inst, "gt");
+}
+
+/// @brief 整数小于等于比较翻译成ARM32汇编
+void InstSelectorArm32::translate_le_int32(Instruction * inst) {
+    translate_cmp_operator(inst, "le");
+}
+
+/// @brief 整数大于等于比较翻译成ARM32汇编
+void InstSelectorArm32::translate_ge_int32(Instruction * inst) {
+    translate_cmp_operator(inst, "ge");
+}
+
+/// @brief 整数等于比较翻译成ARM32汇编
+void InstSelectorArm32::translate_eq_int32(Instruction * inst) {
+    translate_cmp_operator(inst, "eq");
+}
+
+/// @brief 整数不等于比较翻译成ARM32汇编
+void InstSelectorArm32::translate_ne_int32(Instruction * inst) {
+    translate_cmp_operator(inst, "ne");
 }
 
 /// @brief 函数调用指令翻译成ARM32汇编

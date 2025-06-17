@@ -50,7 +50,39 @@ void BinaryInstruction::toString(std::string & str)
             // 减法指令，二元运算
             str = getIRName() + " = sub " + src1->getIRName() + "," + src2->getIRName();
             break;
+		case IRInstOperator::IRINST_OP_MUL_I:
 
+			// 乘法指令，二元运算
+            str = getIRName() + " = mul " + src1->getIRName() + "," + src2->getIRName();
+            break;
+        case IRInstOperator::IRINST_OP_DIV_I:
+            
+			// 除法指令，二元运算
+			str = getIRName() + " = div " + src1->getIRName() + "," + src2->getIRName();
+            break;
+		case IRInstOperator::IRINST_OP_MOD_I:
+			
+			// 取余指令，二元运算
+			str = getIRName() + " = mod " + src1->getIRName() + "," + src2->getIRName();
+			break;
+		case IRInstOperator::IRINST_OP_LT_I:
+            str = getIRName() + " = icmp lt " + src1->getIRName() + "," + src2->getIRName();
+            break;
+        case IRInstOperator::IRINST_OP_GT_I:
+            str = getIRName() + " = icmp gt " + src1->getIRName() + "," + src2->getIRName();
+            break;
+        case IRInstOperator::IRINST_OP_LE_I:
+            str = getIRName() + " = icmp le " + src1->getIRName() + "," + src2->getIRName();
+            break;
+        case IRInstOperator::IRINST_OP_GE_I:
+            str = getIRName() + " = icmp ge " + src1->getIRName() + "," + src2->getIRName();
+            break;
+        case IRInstOperator::IRINST_OP_EQ_I:
+            str = getIRName() + " = icmp eq " + src1->getIRName() + "," + src2->getIRName();
+            break;
+        case IRInstOperator::IRINST_OP_NE_I:
+            str = getIRName() + " = icmp ne " + src1->getIRName() + "," + src2->getIRName();
+            break;
         default:
             // 未知指令
             Instruction::toString(str);

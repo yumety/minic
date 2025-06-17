@@ -66,7 +66,8 @@ protected:
 
     /// @brief goto指令指令翻译成ARM32汇编
     /// @param inst IR指令
-    void translate_goto(Instruction * inst);
+    // void translate_goto(Instruction * inst);
+	void translate_br(Instruction * inst);
 
     /// @brief 整数加法指令翻译成ARM32汇编
     /// @param inst IR指令
@@ -76,10 +77,32 @@ protected:
     /// @param inst IR指令
     void translate_sub_int32(Instruction * inst);
 
+	/// @brief 整数乘法指令翻译成ARM32汇编
+    /// @param inst IR指令
+	void translate_mul_int32(Instruction * inst);
+	
+	/// @brief 整数除法指令翻译成ARM32汇编
+    /// @param inst IR指令
+	void translate_div_int32(Instruction * inst);
+	
+	/// @brief 整数取余指令翻译成ARM32汇编
+    /// @param inst IR指令
+	void translate_mod_int32(Instruction * inst);
+
+	void translate_lt_int32(Instruction * inst);
+	void translate_gt_int32(Instruction * inst);
+	void translate_le_int32(Instruction * inst);
+	void translate_ge_int32(Instruction * inst);
+	void translate_eq_int32(Instruction * inst);
+	void translate_ne_int32(Instruction * inst);
+
+
     /// @brief 二元操作指令翻译成ARM32汇编
     /// @param inst IR指令
     /// @param operator_name 操作码
     void translate_two_operator(Instruction * inst, string operator_name);
+
+	void translate_cmp_operator(Instruction * inst, string condSuffix);
 
     /// @brief 函数调用指令翻译成ARM32汇编
     /// @param inst IR指令

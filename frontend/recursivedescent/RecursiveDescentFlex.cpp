@@ -99,18 +99,57 @@ int rd_flex()
         // FIXME 0开头的整数这里也识别成了10进制整数，在C语言中0开头的数字串是8进制数字
 
         rd_lval.integer_num.lineno = rd_line_no;
-        rd_lval.integer_num.val = c - '0';
+		std::string numStr;
+		if (c == '0') {
+        	numStr += char(c);
+			int d = fgetc(rd_filein);
+			if (d == 'x' || d == 'X') {
+				// 16 进制：0x...
+				numStr += char(d);
+				while ((d = fgetc(rd_filein)) != EOF && isxdigit(d)) {
+					numStr += char(d);
+				}
+				ungetc(d, rd_filein);
+				rd_lval.integer_num.val = (uint32_t)strtol(numStr.c_str(), nullptr, 0);
+			}
+			else if (d >= '0' && d <= '7') {
+				// 8 进制：0[0-7]*
+				// 已经有一个 '0' 在 numStr
+				do {
+					numStr += char(d);
+					d = fgetc(rd_filein);
+				} while (d >= '0' && d <= '7');
+				ungetc(d, rd_filein);
+				rd_lval.integer_num.val = (uint32_t)strtol(numStr.c_str(), nullptr, 0);
+			}
+			else {
+				// 单独的 0
+				rd_lval.integer_num.val = 0;
+				ungetc(d, rd_filein);
+			}
+		}
+		// 情况2：非 0 开头，一律当十进制处理
+		else {
+			numStr += char(c);
+			while (isdigit(c = fgetc(rd_filein))) {
+				numStr += char(c);
+			}
+			ungetc(c, rd_filein);
+			rd_lval.integer_num.val = (uint32_t)strtol(numStr.c_str(), nullptr, 10);
+		}
 
-        // 最长匹配，直到非数字结束
-        while (isdigit(c = fgetc(rd_filein))) {
-            rd_lval.integer_num.val = rd_lval.integer_num.val * 10 + c - '0';
-        }
+        // rd_lval.integer_num.val = c - '0';
+
+        // // 最长匹配，直到非数字结束
+        // while (isdigit(c = fgetc(rd_filein))) {
+        //     rd_lval.integer_num.val = rd_lval.integer_num.val * 10 + c - '0';
+        // }
 
         // 存储数字的token值
         tokenValue = std::to_string(rd_lval.integer_num.val);
 
-        // 多读的字符回退
-        ungetc(c, rd_filein);
+        // // 多读的字符回退
+        // ungetc(c, rd_filein);
 
         tokenKind = RDTokenType::T_DIGIT;
     } else if (c == '(') {
@@ -148,6 +187,21 @@ int rd_flex()
         tokenKind = RDTokenType::T_SUB;
 		// 存储字符-
         tokenValue = "-";
+	} else if (c == '*') {
+        // 识别字符*
+        tokenKind = RDTokenType::T_MUL;
+		// 存储字符*
+        tokenValue = "*";
+    } else if (c == '/') {
+        // 识别字符/
+        tokenKind = RDTokenType::T_DIV;
+		// 存储字符/
+        tokenValue = "/";
+	} else if (c == '%') {
+        // 识别字符%
+        tokenKind = RDTokenType::T_MOD;
+		// 存储字符%
+        tokenValue = "%";
     } else if (c == '=') {
         // 识别字符=
         tokenKind = RDTokenType::T_ASSIGN;

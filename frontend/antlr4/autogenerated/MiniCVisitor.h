@@ -23,6 +23,12 @@ public:
 
     virtual std::any visitFuncDef(MiniCParser::FuncDefContext *context) = 0;
 
+    virtual std::any visitReturnType(MiniCParser::ReturnTypeContext *context) = 0;
+
+    virtual std::any visitFormalParamList(MiniCParser::FormalParamListContext *context) = 0;
+
+    virtual std::any visitFormalParam(MiniCParser::FormalParamContext *context) = 0;
+
     virtual std::any visitBlock(MiniCParser::BlockContext *context) = 0;
 
     virtual std::any visitBlockItemList(MiniCParser::BlockItemListContext *context) = 0;
@@ -43,11 +49,35 @@ public:
 
     virtual std::any visitExpressionStatement(MiniCParser::ExpressionStatementContext *context) = 0;
 
+    virtual std::any visitIfStatement(MiniCParser::IfStatementContext *context) = 0;
+
+    virtual std::any visitWhileStatement(MiniCParser::WhileStatementContext *context) = 0;
+
+    virtual std::any visitBreakStatement(MiniCParser::BreakStatementContext *context) = 0;
+
+    virtual std::any visitContinueStatement(MiniCParser::ContinueStatementContext *context) = 0;
+
     virtual std::any visitExpr(MiniCParser::ExprContext *context) = 0;
+
+    virtual std::any visitOrExp(MiniCParser::OrExpContext *context) = 0;
+
+    virtual std::any visitAndExp(MiniCParser::AndExpContext *context) = 0;
+
+    virtual std::any visitEqualExp(MiniCParser::EqualExpContext *context) = 0;
+
+    virtual std::any visitRelationExp(MiniCParser::RelationExpContext *context) = 0;
 
     virtual std::any visitAddExp(MiniCParser::AddExpContext *context) = 0;
 
+    virtual std::any visitMulExp(MiniCParser::MulExpContext *context) = 0;
+
+    virtual std::any visitEqualOp(MiniCParser::EqualOpContext *context) = 0;
+
+    virtual std::any visitRelationOp(MiniCParser::RelationOpContext *context) = 0;
+
     virtual std::any visitAddOp(MiniCParser::AddOpContext *context) = 0;
+
+    virtual std::any visitMulOp(MiniCParser::MulOpContext *context) = 0;
 
     virtual std::any visitUnaryExp(MiniCParser::UnaryExpContext *context) = 0;
 

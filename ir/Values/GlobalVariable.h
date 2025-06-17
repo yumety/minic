@@ -17,6 +17,7 @@
 #pragma once
 
 #include "GlobalValue.h"
+#include "ArrayType.h"
 #include "IRConstant.h"
 
 ///
@@ -84,12 +85,53 @@ public:
     }
 
     ///
+    /// @brief 设置初始化值
+    /// @param initVal 初始化值
+    ///
+    void setInitializer(Value * initVal)
+    {
+        this->initializer = initVal;
+        if (initVal) {
+            this->inBSSSection = false;  // 有初始化值，不在BSS段
+        }
+    }
+
+    ///
+    /// @brief 获取初始化值
+    /// @return 初始化值，nullptr表示没有初始化
+    ///
+    Value * getInitializer() const
+    {
+        return this->initializer;
+    }
+
+    ///
     /// @brief Declare指令IR显示
     /// @param str
     ///
     void toDeclareString(std::string & str)
     {
-        str = "declare " + getType()->toString() + " " + getIRName();
+        // 对于数组类型，需要特殊处理格式：declare i32 @a[10]
+        if (getType()->isArrayType()) {
+            ArrayType *arrayType = static_cast<ArrayType*>(getType());
+            std::string elementType = arrayType->getElementType()->toString();
+            std::string varName = getIRName();
+
+            // 添加维度信息到变量名
+            for (int32_t dim : arrayType->getDimensions()) {
+                varName += "[" + std::to_string(dim) + "]";
+            }
+
+            str = "declare " + elementType + " " + varName;
+        } else {
+            // 对于指针类型，PointerType::toString() 已经返回正确格式（如 i32*）
+            str = "declare " + getType()->toString() + " " + getIRName();
+        }
+
+        // 添加初始化值
+        if (initializer) {
+            str += " = " + initializer->getIRName();
+        }
     }
 
 private:
@@ -102,4 +144,9 @@ private:
     /// @brief 默认全局变量在BSS段，没有初始化，或者即使初始化过，但都值都为0
     ///
     bool inBSSSection = true;
+
+    ///
+    /// @brief 全局变量的初始化值，nullptr表示没有初始化
+    ///
+    Value * initializer = nullptr;
 };

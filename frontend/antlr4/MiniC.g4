@@ -11,10 +11,25 @@ grammar MiniC;
 // 语法规则描述：EBNF范式
 
 // 源文件编译单元定义
-compileUnit: (funcDef | varDecl)* EOF;
+compileUnit: (funcDef | varDecl | statement)* EOF;
 
-// 函数定义，目前不支持形参，也不支持返回void类型等
-funcDef: T_INT T_ID T_L_PAREN T_R_PAREN block;
+// 函数定义
+funcDef:
+	returnType T_ID T_L_PAREN formalParamList? T_R_PAREN block;
+
+// 返回类型
+returnType: basicType | T_VOID;
+
+// 形参列表 formalParamList: basicType T_ID (T_COMMA basicType T_ID)*;
+
+// 形参列表
+formalParamList:
+	basicType formalParam (T_COMMA basicType formalParam)*;
+
+formalParam:
+	T_ID ((T_L_BRACKET expr? T_R_BRACKET) (
+		T_L_BRACKET expr T_R_BRACKET
+	)*)?;
 
 // 语句块看用作函数体，这里允许多个语句，并且不含任何语句
 block: T_L_BRACE blockItemList? T_R_BRACE;
@@ -25,33 +40,59 @@ blockItemList: blockItem+;
 // 每个Item可以是一个语句，或者变量声明语句
 blockItem: statement | varDecl;
 
-// 变量声明，目前不支持变量含有初值
+// 变量声明，支持变量含有初值
 varDecl: basicType varDef (T_COMMA varDef)* T_SEMICOLON;
 
 // 基本类型
 basicType: T_INT;
 
 // 变量定义
-varDef: T_ID;
+varDef: T_ID ('=' expr)? | T_ID (T_L_BRACKET expr T_R_BRACKET)*;
 
-// 目前语句支持return和赋值语句
+// 语句
 statement:
-	T_RETURN expr T_SEMICOLON			# returnStatement
-	| lVal T_ASSIGN expr T_SEMICOLON	# assignStatement
-	| block								# blockStatement
-	| expr? T_SEMICOLON					# expressionStatement;
+	T_RETURN expr? T_SEMICOLON										# returnStatement
+	| lVal T_ASSIGN expr T_SEMICOLON								# assignStatement
+	| block															# blockStatement
+	| expr? T_SEMICOLON												# expressionStatement
+	| T_IF T_L_PAREN expr T_R_PAREN statement (T_ELSE statement)?	# ifStatement
+	| T_WHILE T_L_PAREN expr T_R_PAREN statement					# whileStatement
+	| T_BREAK T_SEMICOLON											# breakStatement
+	| T_CONTINUE T_SEMICOLON										# continueStatement;
 
-// 表达式文法 expr : AddExp 表达式目前只支持加法与减法运算
-expr: addExp;
+// 表达式文法
+expr: orExp;
 
-// 加减表达式
-addExp: unaryExp (addOp unaryExp)*;
+orExp: andExp (T_OR andExp)*;
 
-// 加减运算符
+andExp: equalExp (T_AND equalExp)*;
+
+equalExp: relationExp (equalOp relationExp)*;
+
+relationExp: addExp (relationOp addExp)*;
+
+addExp: mulExp (addOp mulExp)*;
+
+mulExp: unaryExp (mulOp unaryExp)*;
+
+// == !=
+equalOp: T_EQ | T_NE;
+
+// < > <= >=
+relationOp: T_LT | T_GT | T_LE | T_GE;
+
+// + -
 addOp: T_ADD | T_SUB;
 
+// * / %
+mulOp: T_MUL | T_DIV | T_MOD;
+
 // 一元表达式
-unaryExp: primaryExp | T_ID T_L_PAREN realParamList? T_R_PAREN;
+unaryExp:
+	primaryExp
+	| T_SUB unaryExp
+	| T_NOT unaryExp
+	| T_ID T_L_PAREN realParamList? T_R_PAREN;
 
 // 基本表达式：括号表达式、整数、左值表达式
 primaryExp: T_L_PAREN expr T_R_PAREN | T_DIGIT | lVal;
@@ -60,13 +101,15 @@ primaryExp: T_L_PAREN expr T_R_PAREN | T_DIGIT | lVal;
 realParamList: expr (T_COMMA expr)*;
 
 // 左值表达式
-lVal: T_ID;
+lVal: T_ID (T_L_BRACKET expr T_R_BRACKET)*;
 
 // 用正规式来进行词法规则的描述
 
 T_L_PAREN: '(';
 T_R_PAREN: ')';
 T_SEMICOLON: ';';
+T_L_BRACKET: '[';
+T_R_BRACKET: ']';
 T_L_BRACE: '{';
 T_R_BRACE: '}';
 
@@ -75,14 +118,41 @@ T_COMMA: ',';
 
 T_ADD: '+';
 T_SUB: '-';
+T_MUL: '*';
+T_DIV: '/';
+T_MOD: '%';
+
+T_LT: '<';
+T_GT: '>';
+T_LE: '<=';
+T_GE: '>=';
+T_EQ: '==';
+T_NE: '!=';
+
+T_AND: '&&';
+T_OR: '||';
+T_NOT: '!';
 
 // 要注意关键字同样也属于T_ID，因此必须放在T_ID的前面，否则会识别成T_ID
 T_RETURN: 'return';
 T_INT: 'int';
 T_VOID: 'void';
+T_IF: 'if';
+T_ELSE: 'else';
+T_WHILE: 'while';
+T_BREAK: 'break';
+T_CONTINUE: 'continue';
 
 T_ID: [a-zA-Z_][a-zA-Z0-9_]*;
-T_DIGIT: '0' | [1-9][0-9]*;
+T_DIGIT:
+	'0' [xX][0-9a-fA-F]+
+	| '0' [0-7]*
+	| [1-9][0-9]*
+	| '0';
 
 /* 空白符丢弃 */
 WS: [ \r\n\t]+ -> skip;
+// 识别并忽略单行注释
+LINE_COMMENT: '//' ~[\r\n]* -> skip;
+// 识别并忽略多行注释
+BLOCK_COMMENT: '/*' .*? '*/' -> skip;

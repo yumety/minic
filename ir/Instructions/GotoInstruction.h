@@ -34,6 +34,18 @@ public:
     ///
     GotoInstruction(Function * _func, Instruction * _target);
 
+	///
+    /// @brief 有条件跳转指令的构造函数
+    /// @param _func 当前函数
+    /// @param _cond 条件值（i1）
+    /// @param _trueTarget 条件为真时跳转目标
+    /// @param _falseTarget 条件为假时跳转目标
+    ///
+    GotoInstruction(Function * _func,
+		Value    * _cond,
+		Instruction * _trueTarget,
+		Instruction * _falseTarget);
+
     /// @brief 转换成字符串
     void toString(std::string & str) override;
 
@@ -41,11 +53,21 @@ public:
     /// @brief 获取目标Label指令
     /// @return LabelInstruction*
     ///
-    [[nodiscard]] LabelInstruction * getTarget() const;
-
+    // [[nodiscard]] LabelInstruction * getTarget() const;
+	
+	/// @brief 获取真跳转目标 Label
+    [[nodiscard]] LabelInstruction * getTrueTarget()  const;
+    /// @brief 获取假跳转目标 Label（无条件时为 nullptr）
+    [[nodiscard]] LabelInstruction * getFalseTarget() const;
+    /// @brief 获取条件值（无条件时为 nullptr）
+    [[nodiscard]] Value  * getCond()  const;
 private:
-    ///
-    /// @brief 跳转到的目标Label指令
-    ///
-    LabelInstruction * target;
+    // ///
+    // /// @brief 跳转到的目标Label指令
+    // ///
+    // LabelInstruction * target;
+
+	LabelInstruction * trueTarget;   ///< 真分支目标
+    LabelInstruction * falseTarget;  ///< 假分支目标
+    Value * cond;         ///< 条件值
 };

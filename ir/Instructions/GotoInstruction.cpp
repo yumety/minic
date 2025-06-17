@@ -27,20 +27,53 @@ GotoInstruction::GotoInstruction(Function * _func, Instruction * _target)
     : Instruction(_func, IRInstOperator::IRINST_OP_GOTO, VoidType::getType())
 {
     // 真假目标一样，则无条件跳转
-    target = static_cast<LabelInstruction *>(_target);
+    trueTarget = static_cast<LabelInstruction *>(_target);
+	falseTarget = nullptr;
+	cond = nullptr;
+}
+
+/// 有条件跳转构造
+GotoInstruction::GotoInstruction(Function * _func,
+	Value    * _cond,
+	Instruction * _trueTarget,
+	Instruction * _falseTarget)
+	: Instruction(_func, IRInstOperator::IRINST_OP_GOTO, VoidType::getType())
+{
+	trueTarget = static_cast<LabelInstruction*>(_trueTarget);
+	falseTarget = static_cast<LabelInstruction*>(_falseTarget);
+	cond = _cond;
 }
 
 /// @brief 转换成IR指令文本
 void GotoInstruction::toString(std::string & str)
 {
-    str = "br label " + target->getIRName();
+    // str = "br label " + target->getIRName();
+	if (!cond) {
+        // br label .Lx
+        str = "br label " + trueTarget->getIRName();
+    } else {
+        // bc %cond, label .Ltrue, label .Lfalse
+        str = "bc "
+            + cond->getIRName()
+            + ", label "  + trueTarget->getIRName()
+            + ", label "  + falseTarget->getIRName();
+    }
 }
 
 ///
 /// @brief 获取目标Label指令
 /// @return LabelInstruction* label指令
 ///
-LabelInstruction * GotoInstruction::getTarget() const
-{
-    return target;
+// LabelInstruction * GotoInstruction::getTarget() const
+// {
+//     return target;
+// }
+LabelInstruction * GotoInstruction::getTrueTarget() const {
+    return trueTarget;
+}
+LabelInstruction * GotoInstruction::getFalseTarget() const {
+    return falseTarget;
+}
+Value * GotoInstruction::getCond() const {
+    return cond;
 }

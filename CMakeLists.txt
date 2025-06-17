@@ -172,12 +172,19 @@ set(IR_SRCS
 	ir/Instructions/LabelInstruction.h
 	ir/Instructions/MoveInstruction.cpp
 	ir/Instructions/MoveInstruction.h
+	ir/Instructions/LoadArrayInstruction.cpp
+	ir/Instructions/LoadArrayInstruction.h
+	ir/Instructions/StoreArrayInstruction.cpp
+	ir/Instructions/StoreArrayInstruction.h
+	ir/Instructions/ArraySliceInstruction.cpp
+	ir/Instructions/ArraySliceInstruction.h
 	ir/Types/VoidType.h
 	ir/Types/VoidType.cpp
 	ir/Types/LabelType.h
 	ir/Types/LabelType.cpp
 	ir/Types/IntegerType.h
 	ir/Types/IntegerType.cpp
+	ir/Types/ArrayType.h
 	ir/Values/ConstInt.h
 	ir/Values/FormalParam.h
 	ir/Values/GlobalVariable.h
@@ -380,10 +387,21 @@ add_custom_command(TARGET ${PROJECT_NAME}
 )
 
 # 源代码打包
-set(CPACK_SOURCE_GENERATOR "TGZ")
+# set(CPACK_SOURCE_GENERATOR "TGZ")
+set(CPACK_SOURCE_GENERATOR "ZIP")
 set(CPACK_SOURCE_PACKAGE_FILE_NAME "${PROJECT_NAME}-${PROJECT_VERSION}-src")
 
-# 忽略不需要源代码目录或文件
+# # 忽略不需要源代码目录或文件
+# set(CPACK_SOURCE_IGNORE_FILES
+# "/build/;" # 忽略 build 目录
+# "/cmake-build-.*/;" # cmake-build-开头的目录
+# "/.git/;" # 忽略 Git 仓库
+# "~$;" # 忽略临时文件（如编辑器产生的临时文件）
+# "/doc/;" # 忽略 doc 目录
+# "/frontend/antlr4/.antlr/;" # antlr自动产生的目录
+# "/.history/;" # 本地历史文件
+# "/tests/;" # 测试文件夹
+# )
 set(CPACK_SOURCE_IGNORE_FILES
 	"/build/;" # 忽略 build 目录
 	"/cmake-build-.*/;" # cmake-build-开头的目录
@@ -393,6 +411,12 @@ set(CPACK_SOURCE_IGNORE_FILES
 	"/frontend/antlr4/.antlr/;" # antlr自动产生的目录
 	"/.history/;" # 本地历史文件
 	"/tests/;" # 测试文件夹
+	"/thirdparty/;" # antlr
+	"/tools/;" # tools
+	"/cmake/;" # cmake
+	"/.vs/;" # visual studio
+	"/.vscode/;" # vscode
+	"/.cache/;" # cache
 )
 
 # 二进制打包

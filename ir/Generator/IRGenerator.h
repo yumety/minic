@@ -20,6 +20,7 @@
 
 #include "AST.h"
 #include "Module.h"
+#include "LabelInstruction.h"
 
 /// @brief AST遍历产生线性IR类
 class IRGenerator {
@@ -67,10 +68,32 @@ protected:
     /// @return 翻译是否成功，true：成功，false：失败
     bool ir_add(ast_node * node);
 
-    /// @brief 整数减法AST节点翻译成线性中间IR
+	/// @brief 整数减法AST节点翻译成线性中间IR
     /// @param node AST节点
     /// @return 翻译是否成功，true：成功，false：失败
     bool ir_sub(ast_node * node);
+
+	bool ir_mul(ast_node * node);
+	bool ir_div(ast_node * node);
+	bool ir_neg(ast_node * node);
+	bool ir_mod(ast_node * node);
+
+	bool ir_lt(ast_node * node);
+	bool ir_gt(ast_node * node);
+	bool ir_le(ast_node * node);
+	bool ir_ge(ast_node * node);
+	bool ir_eq(ast_node * node);
+	bool ir_ne(ast_node * node);
+
+	bool ir_and(ast_node * node);
+	bool ir_or(ast_node * node);
+	bool ir_not(ast_node * node);
+
+    /// @brief 将i1类型的布尔值转换为i32类型的整数值
+    /// @param node AST节点
+    /// @param boolValue i1类型的布尔值
+    /// @return i32类型的整数值
+    Value* convertBoolToInt(ast_node *node, Value *boolValue);
 
     /// @brief 赋值AST节点翻译成线性中间IR
     /// @param node AST节点
@@ -81,6 +104,11 @@ protected:
     /// @param node AST节点
     /// @return 翻译是否成功，true：成功，false：失败
     bool ir_return(ast_node * node);
+
+	bool ir_if(ast_node * node);
+	bool ir_while(ast_node * node);
+	bool ir_break(ast_node * node);
+	bool ir_continue(ast_node * node);
 
     /// @brief 类型叶子节点翻译成线性中间IR
     /// @param node AST节点
@@ -112,6 +140,10 @@ protected:
     /// @return 翻译是否成功，true：成功，false：失败
     bool ir_variable_declare(ast_node * node);
 
+    bool ir_array_def(ast_node * node);
+    bool ir_array_access(ast_node * node);
+    bool ir_array_dims(ast_node * node);
+
     /// @brief 未知节点类型的节点处理
     /// @param node AST节点
     /// @return 翻译是否成功，true：成功，false：失败
@@ -134,4 +166,7 @@ private:
 
     /// @brief 符号表:模块
     Module * module;
+
+	std::vector<LabelInstruction *> loopCondStack;
+    std::vector<LabelInstruction *> loopEndStack;
 };

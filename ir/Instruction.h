@@ -40,6 +40,33 @@ enum class IRInstOperator : std::int8_t {
     /// @brief 整数的减法指令，二元运算
     IRINST_OP_SUB_I,
 
+	/// @brief 整数的乘法指令，二元运算
+	IRINST_OP_MUL_I,
+    
+	/// @brief 整数的除法指令，二元运算
+	IRINST_OP_DIV_I,
+    
+	/// @brief 整数的取余指令，二元运算
+	IRINST_OP_MOD_I,
+
+	/// @brief 整数的小于比较指令，二元运算
+    IRINST_OP_LT_I,
+	
+    /// @brief 整数的大于比较指令，二元运算
+    IRINST_OP_GT_I,
+
+    /// @brief 整数的小于等于比较指令，二元运算
+	IRINST_OP_LE_I,
+
+    /// @brief 整数的大于等于比较指令，二元运算
+	IRINST_OP_GE_I,
+	
+    /// @brief 整数的等于比较指令，二元运算
+    IRINST_OP_EQ_I,
+
+    /// @brief 整数的不等于比较指令，二元运算
+	IRINST_OP_NE_I,
+
     /// @brief 赋值指令，一元运算
     IRINST_OP_ASSIGN,
 
@@ -48,6 +75,12 @@ enum class IRInstOperator : std::int8_t {
 
     /// @brief 实参ARG指令，单目运算
     IRINST_OP_ARG,
+
+    /// @brief 数组元素加载指令，从内存加载数组元素到寄存器
+    IRINST_OP_LOAD_ARRAY,
+
+    /// @brief 数组元素存储指令，将寄存器值存储到数组元素
+    IRINST_OP_STORE_ARRAY,
 
     /* 后续可追加其他的IR指令 */
 
