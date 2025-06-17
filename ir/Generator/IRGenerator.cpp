@@ -96,7 +96,7 @@ IRGenerator::IRGenerator(ast_node *_root, Module *_module) :
     ast2ir_handlers[ast_operator_type::AST_OP_DECL_STMT] = &IRGenerator::ir_declare_statment;
     ast2ir_handlers[ast_operator_type::AST_OP_VAR_DECL] = &IRGenerator::ir_variable_declare;
     ast2ir_handlers[ast_operator_type::AST_OP_ARRAY_ACCESS] = &IRGenerator::ir_array_access;
-    ast2ir_handlers[ast_operator_type::AST_OP_ARRAY_DIMS] = &IRGenerator::ir_array_dims;
+    // ast2ir_handlers[ast_operator_type::AST_OP_ARRAY_DIMS] = &IRGenerator::ir_array_dims;
 
     /* 语句块 */
     ast2ir_handlers[ast_operator_type::AST_OP_BLOCK] = &IRGenerator::ir_block;
@@ -832,12 +832,12 @@ bool IRGenerator::ir_and(ast_node *node) {
     if (!leftNode || !rightNode) return false;
 
     Function *cur = module->getCurrentFunction();
-    // 创建三条标签
+    // 创建标签
     auto *L_rhs = new LabelInstruction(cur);   // 左真、右评估入口
     auto *L_false = new LabelInstruction(cur); // 结果假时跳来
     auto *L_end = new LabelInstruction(cur);   // 表达式结束
-    Value *result = module->newVarValue(IntegerType::getTypeInt());
-
+    
+    // 生成左操作数代码
     node->blockInsts.addInst(leftNode->blockInsts);
     Value *zero = module->newConstInt(0);
     auto *cmpL = new BinaryInstruction(
@@ -851,7 +851,7 @@ bool IRGenerator::ir_and(ast_node *node) {
     // 短路：如果 left!=0（真），就 goto L_rhs；否则 goto L_false
     node->blockInsts.addInst(new GotoInstruction(cur, cmpL, L_rhs, L_false));
 
-    // L_rhs
+    // L_rhs: 计算右操作数
     node->blockInsts.addInst(L_rhs);
     node->blockInsts.addInst(rightNode->blockInsts);
     auto *cmpR = new BinaryInstruction(
@@ -861,23 +861,12 @@ bool IRGenerator::ir_and(ast_node *node) {
         zero,
         IntegerType::getTypeBool());
     node->blockInsts.addInst(cmpR);
-
-    // bool → int 转换：使用条件跳转
-    auto *L_rhs_true = new LabelInstruction(cur);
-    auto *L_rhs_false = new LabelInstruction(cur);
-    node->blockInsts.addInst(new GotoInstruction(cur, cmpR, L_rhs_true, L_rhs_false));
-
-    // L_rhs_true: 右侧为真
-    node->blockInsts.addInst(L_rhs_true);
-    node->blockInsts.addInst(new MoveInstruction(cur, result, module->newConstInt(1)));
+    
+    // 右操作数结果作为整个表达式的结果
+    Value *result = convertBoolToInt(node, cmpR);
     node->blockInsts.addInst(new GotoInstruction(cur, L_end));
 
-    // L_rhs_false: 右侧为假
-    node->blockInsts.addInst(L_rhs_false);
-    node->blockInsts.addInst(new MoveInstruction(cur, result, module->newConstInt(0)));
-    node->blockInsts.addInst(new GotoInstruction(cur, L_end));
-
-    // L_false
+    // L_false: 左操作数为假，整个表达式为假
     node->blockInsts.addInst(L_false);
     node->blockInsts.addInst(new MoveInstruction(cur, result, module->newConstInt(0)));
     node->blockInsts.addInst(new GotoInstruction(cur, L_end));
@@ -897,11 +886,12 @@ bool IRGenerator::ir_or(ast_node *node) {
     if (!leftNode || !rightNode) return false;
 
     Function *cur = module->getCurrentFunction();
-    auto *L_rhs = new LabelInstruction(cur);
-    auto *L_true = new LabelInstruction(cur);
-    auto *L_end = new LabelInstruction(cur);
-    Value *result = module->newVarValue(IntegerType::getTypeInt());
-
+    // 创建标签
+    auto *L_rhs = new LabelInstruction(cur);   // 左假、右评估入口
+    auto *L_true = new LabelInstruction(cur);  // 结果真时跳来
+    auto *L_end = new LabelInstruction(cur);   // 表达式结束
+    
+    // 生成左操作数代码
     node->blockInsts.addInst(leftNode->blockInsts);
     Value *zero = module->newConstInt(0);
     auto *cmpL = new BinaryInstruction(
@@ -912,10 +902,10 @@ bool IRGenerator::ir_or(ast_node *node) {
         IntegerType::getTypeBool());
     node->blockInsts.addInst(cmpL);
 
-    // 如果 left!=0，就短路为真
+    // 短路：如果 left!=0（真），就 goto L_true；否则 goto L_rhs
     node->blockInsts.addInst(new GotoInstruction(cur, cmpL, L_true, L_rhs));
 
-    // L_rhs
+    // L_rhs: 计算右操作数
     node->blockInsts.addInst(L_rhs);
     node->blockInsts.addInst(rightNode->blockInsts);
     auto *cmpR = new BinaryInstruction(
@@ -925,23 +915,12 @@ bool IRGenerator::ir_or(ast_node *node) {
         zero,
         IntegerType::getTypeBool());
     node->blockInsts.addInst(cmpR);
-
-    // bool → int 转换：使用条件跳转
-    auto *L_rhs_true = new LabelInstruction(cur);
-    auto *L_rhs_false = new LabelInstruction(cur);
-    node->blockInsts.addInst(new GotoInstruction(cur, cmpR, L_rhs_true, L_rhs_false));
-
-    // L_rhs_true: 右侧为真
-    node->blockInsts.addInst(L_rhs_true);
-    node->blockInsts.addInst(new MoveInstruction(cur, result, module->newConstInt(1)));
+    
+    // 右操作数结果作为整个表达式的结果
+    Value *result = convertBoolToInt(node, cmpR);
     node->blockInsts.addInst(new GotoInstruction(cur, L_end));
 
-    // L_rhs_false: 右侧为假
-    node->blockInsts.addInst(L_rhs_false);
-    node->blockInsts.addInst(new MoveInstruction(cur, result, module->newConstInt(0)));
-    node->blockInsts.addInst(new GotoInstruction(cur, L_end));
-
-    // L_true
+    // L_true: 左操作数为真，整个表达式为真
     node->blockInsts.addInst(L_true);
     node->blockInsts.addInst(new MoveInstruction(cur, result, module->newConstInt(1)));
     node->blockInsts.addInst(new GotoInstruction(cur, L_end));
@@ -971,28 +950,8 @@ bool IRGenerator::ir_not(ast_node *node) {
     node->blockInsts.addInst(operandNode->blockInsts);
     node->blockInsts.addInst(eqInst);
 
-    // bool → int 转换：使用条件跳转
-    Value *result = module->newVarValue(IntegerType::getTypeInt());
-    auto *L_true = new LabelInstruction(cur);
-    auto *L_false = new LabelInstruction(cur);
-    auto *L_end = new LabelInstruction(cur);
-
-    node->blockInsts.addInst(new GotoInstruction(cur, eqInst, L_true, L_false));
-
-    // L_true: 结果为真
-    node->blockInsts.addInst(L_true);
-    node->blockInsts.addInst(new MoveInstruction(cur, result, module->newConstInt(1)));
-    node->blockInsts.addInst(new GotoInstruction(cur, L_end));
-
-    // L_false: 结果为假
-    node->blockInsts.addInst(L_false);
-    node->blockInsts.addInst(new MoveInstruction(cur, result, module->newConstInt(0)));
-    node->blockInsts.addInst(new GotoInstruction(cur, L_end));
-
-    // L_end
-    node->blockInsts.addInst(L_end);
-
-    node->val = result;
+    // bool → int 转换
+    node->val = convertBoolToInt(node, eqInst);
     return true;
 }
 
@@ -1300,178 +1259,155 @@ bool IRGenerator::ir_declare_statment(ast_node * node)
     return result;
 }
 
-/// @brief 变量定声明节点翻译成线性中间IR
-/// @param node AST节点
+/// @brief 获取数组维度信息
+/// @param node 父节点，用于添加指令
+/// @param dimsNode 维度节点列表
+/// @param dimValues 输出：维度值列表
+/// @param dimConstants 输出：维度常量列表
 /// @return 翻译是否成功，true：成功，false：失败
-bool IRGenerator::ir_variable_declare(ast_node * node) {
-    // node->sons[0] = 类型节点
-    // node->sons[1] = AST_OP_VAR_DEF 或 AST_OP_ARRAY_DEF
-    
-    Function * curF = module->getCurrentFunction();
-    
-    // 获取类型和定义节点
-    Type * ty = node->sons[0]->type;
-    ast_node * defNode = node->sons[1];
-    
-    // 根据定义节点类型进行不同处理
-    if (defNode->node_type == ast_operator_type::AST_OP_VAR_DEF) {
-        // 处理普通变量定义
-        // AST_OP_VAR_DEF：子孙[0]=id, 子孙[1]=initExpr 或 nullptr
-        const std::string & name = defNode->sons[0]->name;
-        Value * var = module->newVarValue(ty, name);
-        node->val = var;
-        
-        // 如果有初值表达式
-        ast_node * initExpr = defNode->sons.size() > 1 ? defNode->sons[1] : nullptr;
-        if (initExpr) {
-            // 生成初值表达式的 IR
-            ast_node * initNode = ir_visit_ast_node(initExpr);
-            if (!initNode)
-                return false;
-            node->blockInsts.addInst(initNode->blockInsts);
-
-            // 判断是全局变量还是局部变量
-            if (curF) {
-                // 局部变量：生成赋值指令
-                node->blockInsts.addInst(new MoveInstruction(curF, static_cast<LocalVariable *>(var), initNode->val));
-            } else {
-                // 全局变量：设置初始化值
-                GlobalVariable * globalVar = static_cast<GlobalVariable *>(var);
-                globalVar->setInitializer(initNode->val);
-            }
-        }
+bool IRGenerator::ir_get_array_dimensions(ast_node *node, ast_node *dimsNode,
+                                        std::vector<Value *> &dimValues,
+                                        std::vector<int32_t> &dimConstants) {
+    if (!dimsNode) {
+        return false;
     }
-    else if (defNode->node_type == ast_operator_type::AST_OP_ARRAY_DEF) {
-        // 处理数组定义
-        // AST_OP_ARRAY_DEF：子孙[0]=id, 子孙[1]=维度表达式列表, 子孙[2]=初值列表（可选）
-        std::string & name = defNode->sons[0]->name;
-        // std::string base = defNode->sons[0]->name;
-        // 处理数组维度
-        ast_node * dimsNode = defNode->sons[1];
 
-        // 处理各维度，计算总大小和维度信息
-        std::vector<Value *> dimSizes;
-        std::vector<int32_t> dimConstants;
-        // Value *totalSize = module->newConstInt(1);
-
-        for (auto dimChild : dimsNode->sons) {
-            ast_node *dimNode = ir_visit_ast_node(dimChild);
-            if (!dimNode) {
-                return false;
-            }
-
-            dimSizes.push_back(dimNode->val);
-            node->blockInsts.addInst(dimNode->blockInsts);
-
-            // 尝试获取常量维度大小
-            if (ConstInt *constDim = dynamic_cast<ConstInt*>(dimNode->val)) {
-                dimConstants.push_back(constDim->getVal());
-            } else {
-                // 如果不是常量，使用默认值10
-                dimConstants.push_back(10);
-            }
-
-            // // 累乘计算总大小
-            // BinaryInstruction *mulInst = new BinaryInstruction(
-            //     curF,
-            //     IRInstOperator::IRINST_OP_MUL_I,
-            //     totalSize,
-            //     dimNode->val,
-            //     IntegerType::getTypeInt());
-
-            // node->blockInsts.addInst(mulInst);
-            // totalSize = mulInst;
-        }
-
-        // 创建数组类型
-        ArrayType *arrayType = new ArrayType(ty, dimConstants);
-
-        // 创建数组变量（可能是局部变量或全局变量）
-        Value *arrayVar = module->newVarValue(arrayType, name);
-        if (!arrayVar) {
+    for (auto dimChild : dimsNode->sons) {
+        ast_node *dimNode = ir_visit_ast_node(dimChild);
+        if (!dimNode) {
             return false;
         }
 
-        // 保存维度信息到全局映射中，用于数组访问时的降维计算
-        static std::map<std::string, std::vector<Value *>> arrayDimensions;
-        if (LocalVariable *localVar = dynamic_cast<LocalVariable*>(arrayVar)) {
-            arrayDimensions[localVar->getName()] = dimSizes;
-        } else if (GlobalVariable *globalVar = dynamic_cast<GlobalVariable*>(arrayVar)) {
-            arrayDimensions[globalVar->getName()] = dimSizes;
-        }
+        dimValues.push_back(dimNode->val);
+        node->blockInsts.addInst(dimNode->blockInsts);
 
-        // 对于数组变量，node->val直接指向数组变量本身
-        node->val = arrayVar;
+        // 尝试获取常量维度值
+        if (ConstInt *constDim = dynamic_cast<ConstInt*>(dimNode->val)) {
+            dimConstants.push_back(constDim->getVal());
+        } else {
+            // 非常量维度，使用默认值10
+            dimConstants.push_back(10);
+        }
+    }
+    return true;
+}
+
+/// @brief 处理普通变量定义
+/// @param node 变量声明节点
+/// @param defNode 变量定义节点
+/// @param ty 变量类型
+/// @return 翻译是否成功，true：成功，false：失败
+bool IRGenerator::ir_simple_var_def(ast_node *node, ast_node *defNode, Type *ty) {
+    Function *curF = module->getCurrentFunction();
+
+    // AST_OP_VAR_DEF：子孙[0]=id, 子孙[1]=initExpr 或 nullptr
+    const std::string &name = defNode->sons[0]->name;
+    Value *var = module->newVarValue(ty, name);
+    node->val = var;
+
+    // 如果有初值表达式
+    ast_node *initExpr = defNode->sons.size() > 1 ? defNode->sons[1] : nullptr;
+    if (initExpr) {
+        // 生成初值表达式的 IR
+        ast_node *initNode = ir_visit_ast_node(initExpr);
+        if (!initNode)
+            return false;
+        node->blockInsts.addInst(initNode->blockInsts);
+
+        // 判断是全局变量还是局部变量
+        if (curF) {
+            // 局部变量：生成赋值指令
+            node->blockInsts.addInst(new MoveInstruction(curF, static_cast<LocalVariable *>(var), initNode->val));
+        } else {
+            // 全局变量：设置初始化值
+            GlobalVariable *globalVar = static_cast<GlobalVariable *>(var);
+            globalVar->setInitializer(initNode->val);
+        }
+    }
+
+    return true;
+}
+
+/// @brief 处理数组变量定义
+/// @param node 变量声明节点
+/// @param defNode 数组定义节点
+/// @param ty 元素类型
+/// @return 翻译是否成功，true：成功，false：失败
+bool IRGenerator::ir_array_var_def(ast_node *node, ast_node *defNode, Type *ty) {
+    // AST_OP_ARRAY_DEF：子孙[0]=id, 子孙[1]=维度表达式列表, 子孙[2]=初值列表（可选）
+    std::string &name = defNode->sons[0]->name;
+
+    // 处理数组维度
+    ast_node *dimsNode = defNode->sons[1];
+    std::vector<Value *> dimSizes;
+    std::vector<int32_t> dimConstants;
+
+    if (!ir_get_array_dimensions(node, dimsNode, dimSizes, dimConstants)) {
+        return false;
+    }
+
+    // 创建数组类型
+    ArrayType *arrayType = new ArrayType(ty, dimConstants);
+
+    // 创建数组变量（可能是局部变量或全局变量）
+    Value *arrayVar = module->newVarValue(arrayType, name);
+    if (!arrayVar) {
+        return false;
+    }
+
+    // 保存维度信息到全局映射中，用于数组访问时的降维计算
+    static std::map<std::string, std::vector<Value *>> arrayDimensions;
+    if (LocalVariable *localVar = dynamic_cast<LocalVariable*>(arrayVar)) {
+        arrayDimensions[localVar->getName()] = dimSizes;
+    } else if (GlobalVariable *globalVar = dynamic_cast<GlobalVariable*>(arrayVar)) {
+        arrayDimensions[globalVar->getName()] = dimSizes;
+    }
+
+    // 对于数组变量，node->val直接指向数组变量本身
+    node->val = arrayVar;
+
+    return true;
+}
+
+/// @brief 变量定声明节点翻译成线性中间IR
+/// @param node AST节点
+/// @return 翻译是否成功，true：成功，false：失败
+bool IRGenerator::ir_variable_declare(ast_node *node) {
+    // node->sons[0] = 类型节点
+    // node->sons[1] = AST_OP_VAR_DEF 或 AST_OP_ARRAY_DEF
+
+    // 获取类型和定义节点
+    Type *ty = node->sons[0]->type;
+    ast_node *defNode = node->sons[1];
+
+    // 根据定义节点类型进行不同处理
+    if (defNode->node_type == ast_operator_type::AST_OP_VAR_DEF) {
+        // 处理普通变量定义
+        return ir_simple_var_def(node, defNode, ty);
+    }
+    else if (defNode->node_type == ast_operator_type::AST_OP_ARRAY_DEF) {
+        // 处理数组定义
+        return ir_array_var_def(node, defNode, ty);
     }
     else {
         // 未知的定义节点类型
         return false;
     }
-    
-    return true;
 }
 
-/// @brief 数组访问AST节点翻译成线性中间IR
-/// @param node AST节点
-/// @return 翻译是否成功，true：成功，false：失败
-bool IRGenerator::ir_array_access(ast_node *node) {
-    // node->sons[0] = 数组名节点
-    // node->sons[1] = array-dims节点，包含各维度索引
-
+/// @brief 计算数组访问的线性偏移
+/// @param node 父节点，用于添加指令
+/// @param indices 各维度索引值
+/// @param fullDimensions 数组的完整维度信息
+/// @param accessedDims 访问的维度数量
+/// @param isFullAccess 是否为完整访问
+/// @param remainingDims 剩余维度信息
+/// @return 线性偏移值
+Value* IRGenerator::ir_calculate_array_offset(ast_node *node, const std::vector<Value *> &indices,
+                                             const std::vector<int32_t> &fullDimensions,
+                                             size_t accessedDims, bool isFullAccess,
+                                             const std::vector<int32_t> &remainingDims) {
     Function *curF = module->getCurrentFunction();
-
-    // 获取数组变量
-    ast_node *arrayNameNode = ir_visit_ast_node(node->sons[0]);
-    if (!arrayNameNode) {
-        return false;
-    }
-
-    ast_node *indicesNode = node->sons[1];
-
-    // 处理各维度索引
-    std::vector<Value *> indices;
-    for (auto indexChild : indicesNode->sons) {
-        ast_node *indexNode = ir_visit_ast_node(indexChild);
-        if (!indexNode) {
-            return false;
-        }
-
-        indices.push_back(indexNode->val);
-        node->blockInsts.addInst(indexNode->blockInsts);
-    }
-
-    node->blockInsts.addInst(arrayNameNode->blockInsts);
-
-    // 获取数组的完整维度信息
-    std::vector<int32_t> fullDimensions;
-    Type *elementType = IntegerType::getTypeInt();
-
-    if (ArrayType *arrayType = dynamic_cast<ArrayType*>(arrayNameNode->val->getType())) {
-        fullDimensions = arrayType->getDimensions();
-        elementType = arrayType->getElementType();
-    } else {
-        // 如果不是数组类型，可能是错误
-        return false;
-    }
-
-    size_t accessedDims = indices.size();
-    size_t totalDims = fullDimensions.size();
-
-    // 判断是完整访问还是部分访问
-    bool isFullAccess = (accessedDims == totalDims);
-
-    // 计算剩余维度（用于部分访问）
-    std::vector<int32_t> remainingDims;
-    if (!isFullAccess) {
-        for (size_t i = accessedDims; i < totalDims; ++i) {
-            remainingDims.push_back(fullDimensions[i]);
-        }
-    }
-
-    // 计算线性偏移（以元素为单位）
-    // 对于多维数组 a[d0][d1][d2]...，访问 a[i0][i1]... 的偏移计算：
-    // offset = i0 * (d1 * d2 * ...) + i1 * (d2 * d3 * ...) + ...
-
     Value *linearOffset = nullptr;
 
     if (accessedDims == 0) {
@@ -1482,14 +1418,6 @@ bool IRGenerator::ir_array_access(ast_node *node) {
 
         // 对于每个访问的维度，计算其对线性偏移的贡献
         for (size_t i = 1; i < accessedDims; ++i) {
-            // 计算当前维度的乘数（后续所有维度的乘积）
-            // int32_t multiplier = 1;
-            // for (size_t j = i; j < totalDims; ++j) {
-            //     multiplier *= fullDimensions[j];
-            // }
-
-            // Value *multiplierVal = module->newConstInt(multiplier);
-
             Value *multiplierVal = module->newConstInt(fullDimensions[i]);
 
             // linearOffset = linearOffset * multiplier + indices[i]
@@ -1532,6 +1460,22 @@ bool IRGenerator::ir_array_access(ast_node *node) {
             }
         }
     }
+
+    return linearOffset;
+}
+
+/// @brief 生成数组访问指令
+/// @param node 父节点，用于添加指令
+/// @param arrayNameNode 数组名节点
+/// @param linearOffset 线性偏移值
+/// @param elementType 元素类型
+/// @param isFullAccess 是否为完整访问
+/// @param remainingDims 剩余维度信息
+/// @return 翻译是否成功，true：成功，false：失败
+bool IRGenerator::ir_generate_array_access_instructions(ast_node *node, ast_node *arrayNameNode,
+                                                       Value *linearOffset, Type *elementType,
+                                                       bool isFullAccess, const std::vector<int32_t> &remainingDims) {
+    Function *curF = module->getCurrentFunction();
 
     // 计算字节偏移
     Value *elementSize = module->newConstInt(4);  // sizeof(int) = 4
@@ -1583,26 +1527,64 @@ bool IRGenerator::ir_array_access(ast_node *node) {
     return true;
 }
 
-/// @brief 数组维度AST节点翻译成线性中间IR
+/// @brief 数组访问AST节点翻译成线性中间IR
 /// @param node AST节点
 /// @return 翻译是否成功，true：成功，false：失败
-bool IRGenerator::ir_array_dims(ast_node *node) {
-    // array-dims节点主要是组织维度信息
-    // 其子节点是各个维度的表达式
-    
-    // 遍历所有维度表达式
-    for (auto dimChild : node->sons) {
-        ast_node *dimNode = ir_visit_ast_node(dimChild);
-        if (!dimNode) {
-            return false;
-        }
-        
-        // 将维度表达式的IR指令添加到当前节点
-        node->blockInsts.addInst(dimNode->blockInsts);
+bool IRGenerator::ir_array_access(ast_node *node) {
+    // node->sons[0] = 数组名节点
+    // node->sons[1] = array-dims节点，包含各维度索引
+
+    // 获取数组变量
+    ast_node *arrayNameNode = ir_visit_ast_node(node->sons[0]);
+    if (!arrayNameNode) {
+        return false;
     }
-    
-    // array-dims本身不产生值，主要是组织结构
-    node->val = nullptr;
-    
-    return true;
+
+    ast_node *indicesNode = node->sons[1];
+
+    // 处理各维度索引
+    std::vector<Value *> indices;
+    std::vector<int32_t> indexConstants;
+    if (!ir_get_array_dimensions(node, indicesNode, indices, indexConstants)) {
+        return false;
+    }
+
+    node->blockInsts.addInst(arrayNameNode->blockInsts);
+
+    // 获取数组的完整维度信息
+    std::vector<int32_t> fullDimensions;
+    Type *elementType = IntegerType::getTypeInt();
+
+    if (ArrayType *arrayType = dynamic_cast<ArrayType*>(arrayNameNode->val->getType())) {
+        fullDimensions = arrayType->getDimensions();
+        elementType = arrayType->getElementType();
+    } else {
+        // 如果不是数组类型，可能是错误
+        return false;
+    }
+
+    size_t accessedDims = indices.size();
+    size_t totalDims = fullDimensions.size();
+
+    // 判断是完整访问还是部分访问
+    bool isFullAccess = (accessedDims == totalDims);
+
+    // 计算剩余维度（用于部分访问）
+    std::vector<int32_t> remainingDims;
+    if (!isFullAccess) {
+        for (size_t i = accessedDims; i < totalDims; ++i) {
+            remainingDims.push_back(fullDimensions[i]);
+        }
+    }
+
+    // 计算线性偏移
+    Value *linearOffset = ir_calculate_array_offset(node, indices, fullDimensions,
+                                                  accessedDims, isFullAccess, remainingDims);
+    if (!linearOffset) {
+        return false;
+    }
+
+    // 生成数组访问指令
+    return ir_generate_array_access_instructions(node, arrayNameNode, linearOffset,
+                                               elementType, isFullAccess, remainingDims);
 }
