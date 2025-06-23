@@ -30,6 +30,9 @@
 #include "FuncCallInstruction.h"
 #include "ArgInstruction.h"
 #include "MoveInstruction.h"
+#include "ArrayType.h"
+#include "ConstInt.h"
+#include "LocalVariable.h"
 
 /// @brief 构造函数
 /// @param tab 符号表
@@ -56,24 +59,43 @@ void CodeGeneratorArm32::genDataSection()
 
     // 可直接操作文件指针fp进行写操作
 
-    // 目前不支持全局变量和静态变量，以及字符串常量
+    // 处理全局变量和静态变量，支持标量和数组类型
     // 全局变量分两种情况：初始化的全局变量和未初始化的全局变量
-    // TODO 这里先处理未初始化的全局变量
     for (auto var: module->getGlobalVariables()) {
 
         if (var->isInBSSSection()) {
-
-            // 在BSS段的全局变量，可以包含初值全是0的变量
+            // 在BSS段的全局变量，可以包含初值全是0的变量（包括数组）
             fprintf(fp, ".comm %s, %d, %d\n", var->getName().c_str(), var->getType()->getSize(), var->getAlignment());
         } else {
-
-            // 有初值的全局变量
+            // 有初值的全局变量（包括数组）
             fprintf(fp, ".global %s\n", var->getName().c_str());
             fprintf(fp, ".data\n");
             fprintf(fp, ".align %d\n", var->getAlignment());
             fprintf(fp, ".type %s, %%object\n", var->getName().c_str());
-            fprintf(fp, "%s\n", var->getName().c_str());
-            // TODO 后面设置初始化的值，具体请参考ARM的汇编
+            fprintf(fp, ".size %s, %d\n", var->getName().c_str(), var->getType()->getSize());
+            fprintf(fp, "%s:\n", var->getName().c_str());
+
+            // 根据类型生成初始化数据
+            Type* varType = var->getType();
+            if (varType->isArrayType()) {
+                // 数组类型：生成数组大小的零初始化数据
+                int arraySize = varType->getSize() / 4; // 假设int类型，每个元素4字节
+                for (int i = 0; i < arraySize; i++) {
+                    fprintf(fp, ".word 0\n");
+                }
+            } else {
+                // 标量类型：生成单个初始化值
+                if (var->getInitializer()) {
+                    // 有初始化值
+                    if (ConstInt* constInit = dynamic_cast<ConstInt*>(var->getInitializer())) {
+                        fprintf(fp, ".word %d\n", constInit->getVal());
+                    } else {
+                        fprintf(fp, ".word 0\n"); // 默认为0
+                    }
+                } else {
+                    fprintf(fp, ".word 0\n"); // 默认为0
+                }
+            }
         }
     }
 }
@@ -129,6 +151,9 @@ void CodeGeneratorArm32::genCodeSection(Function * func)
 
     // ILOC代码序列
     ILocArm32 iloc(module);
+
+    // 设置当前正在处理的函数
+    iloc.setCurrentFunction(func);
 
     // 指令选择生成汇编指令
     InstSelectorArm32 instSelector(IrInsts, iloc, func, simpleRegisterAllocator);
@@ -229,24 +254,83 @@ void CodeGeneratorArm32::registerAllocation(Function * func)
 void CodeGeneratorArm32::adjustFormalParamInsts(Function * func)
 {
     // 函数形参的前四个实参值采用的是寄存器传值，后面栈传递
+    // 数组参数作为指针传递
 
     auto & params = func->getParams();
+    auto & insts = func->getInterCode().getInsts();
 
     // 形参的前四个通过寄存器来传值R0-R3
+    // 但需要将寄存器值保存到栈上的不同位置
+    int64_t param_offset = -4;  // 从负偏移开始
     for (int k = 0; k < (int) params.size() && k <= 3; k++) {
-
-        // 前四个设置分配寄存器
+        // 前四个参数先分配寄存器，但也需要栈空间来保存
         params[k]->setRegId(k);
+        // 同时分配栈空间用于保存寄存器值
+        params[k]->setMemoryAddr(ARM32_FP_REG_NO, param_offset);
+
+        // 找到对应的局部变量并设置相同的内存地址
+        for (auto inst : insts) {
+            if (auto moveInst = dynamic_cast<MoveInstruction*>(inst)) {
+                // 检查是否是形参到局部变量的赋值
+                if (moveInst->getOperand(1) == params[k]) {
+                    // 找到了对应的局部变量，设置相同的内存地址
+                    Value* localVar = moveInst->getOperand(0);
+                    if (auto localVariable = dynamic_cast<LocalVariable*>(localVar)) {
+                        localVariable->setMemoryAddr(ARM32_FP_REG_NO, param_offset);
+                    }
+                    break;
+                }
+            }
+        }
+
+        param_offset -= 4;  // 递减偏移量
     }
 
     // 根据ARM版C语言的调用约定，除前4个外的实参进行值传递，逆序入栈
-    int64_t fp_esp = func->getProtectedReg().size() * 4;
+    // 栈参数的偏移量取决于函数是否为叶子函数：
+    // - 叶子函数：push {r10,fp}，栈参数从 fp+8 开始
+    // - 非叶子函数：push {r10,fp,lr}，栈参数从 fp+12 开始
+    int64_t fp_esp;
+    if (func->getExistFuncCall()) {
+        // 非叶子函数：保存了r10, fp, lr，栈参数从 fp+12 开始
+        fp_esp = 12;
+    } else {
+        // 叶子函数：只保存了r10, fp，栈参数从 fp+8 开始
+        fp_esp = 8;
+    }
     for (int k = 4; k < (int) params.size(); k++) {
-
         params[k]->setMemoryAddr(ARM32_FP_REG_NO, fp_esp);
 
-        // 增加4字节，目前只支持int类型
-        fp_esp += params[k]->getType()->getSize();
+        // 对于栈传递参数，删除对应的MoveInstruction，因为参数已经在正确位置
+        for (auto iter = insts.begin(); iter != insts.end(); ) {
+            if (auto moveInst = dynamic_cast<MoveInstruction*>(*iter)) {
+                // 检查是否是形参到局部变量的赋值
+                if (moveInst->getOperand(1) == params[k]) {
+                    // 将局部变量重定向到形参，然后删除MoveInstruction
+                    Value* localVar = moveInst->getOperand(0);
+
+                    // 在所有使用局部变量的地方替换为形参
+                    for (auto inst2 : insts) {
+                        for (int i = 0; i < inst2->getOperandsNum(); i++) {
+                            if (inst2->getOperand(i) == localVar) {
+                                inst2->setOperand(i, params[k]);
+                            }
+                        }
+                    }
+
+                    // 删除这个MoveInstruction
+                    iter = insts.erase(iter);
+                    break;
+                } else {
+                    ++iter;
+                }
+            } else {
+                ++iter;
+            }
+        }
+
+        // 数组参数和标量参数都占用4字节（数组传递的是指针）
+        fp_esp += 4;  // 指针大小固定为4字节
     }
 }
 
@@ -374,8 +458,16 @@ void CodeGeneratorArm32::stackAlloc(Function * func)
     // ---------------------
 
     // 这里对临时变量和局部变量都在栈上进行分配，采用FP+偏移的寻址方式，偏移为负数
+    // 需要避免与参数地址冲突，参数占用-4到-16（前4个参数）
 
-    int32_t sp_esp = 0;
+    // 计算参数占用的栈空间
+    auto & params = func->getParams();
+    int32_t param_space = 0;
+    if (params.size() > 0) {
+        param_space = (params.size() > 4 ? 4 : params.size()) * 4;  // 前4个参数占用的空间
+    }
+
+    int32_t sp_esp = param_space;  // 从参数空间之后开始分配
 
     // 遍历函数变量列表
     for (auto var: func->getVarValues()) {
@@ -414,6 +506,11 @@ void CodeGeneratorArm32::stackAlloc(Function * func)
         if (inst->hasResultValue() && (inst->getRegId() == -1)) {
             // 有值，并且没有分配寄存器
 
+            // 检查是否已经分配了内存地址（避免重复分配）
+            if (inst->getMemoryAddr()) {
+                continue;
+            }
+
             int32_t size = inst->getType()->getSize();
 
             // 32位ARM平台按照4字节的大小整数倍分配局部变量
@@ -427,7 +524,7 @@ void CodeGeneratorArm32::stackAlloc(Function * func)
             // 否则，需要先把偏移量放到寄存器中，然后机制寄存器+偏移寄存器来寻址
             // 之后需要对所有使用到该Value的指令在寄存器分配前要变换。
 
-            // 局部变量偏移设置
+            // 临时变量偏移设置
             inst->setMemoryAddr(ARM32_FP_REG_NO, -sp_esp);
         }
     }

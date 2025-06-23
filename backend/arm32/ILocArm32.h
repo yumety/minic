@@ -89,6 +89,9 @@ class ILocArm32 {
     /// @brief 符号表
     Module * module;
 
+    /// @brief 当前正在处理的函数
+    Function * currentFunction;
+
     /// @brief 加载立即数 ldr r0,=#100
     /// @param rs_reg_no 结果寄存器号
     /// @param num 立即数
@@ -214,4 +217,8 @@ public:
 
     /// @brief 删除无用的Label指令
     void deleteUnusedLabel();
+
+    /// @brief 设置当前正在处理的函数
+    /// @param func 当前函数
+    void setCurrentFunction(Function * func);
 };

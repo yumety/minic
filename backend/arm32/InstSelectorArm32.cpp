@@ -28,6 +28,10 @@
 #include "GotoInstruction.h"
 #include "FuncCallInstruction.h"
 #include "MoveInstruction.h"
+#include "LoadArrayInstruction.h"
+#include "StoreArrayInstruction.h"
+#include "ArraySliceInstruction.h"
+#include <typeinfo>
 
 /// @brief 构造函数
 /// @param _irCode 指令
@@ -62,6 +66,13 @@ InstSelectorArm32::InstSelectorArm32(vector<Instruction *> & _irCode,
 
     translator_handlers[IRInstOperator::IRINST_OP_FUNC_CALL] = &InstSelectorArm32::translate_call;
     translator_handlers[IRInstOperator::IRINST_OP_ARG] = &InstSelectorArm32::translate_arg;
+
+    // 数组相关指令
+    translator_handlers[IRInstOperator::IRINST_OP_LOAD_ARRAY] = &InstSelectorArm32::translate_load_array;
+    translator_handlers[IRInstOperator::IRINST_OP_STORE_ARRAY] = &InstSelectorArm32::translate_store_array;
+
+    // ArraySliceInstruction使用ASSIGN操作码，但需要特殊处理
+    // 我们在translate_assign中已经处理了
 }
 
 ///
@@ -247,6 +258,75 @@ void InstSelectorArm32::translate_assign(Instruction * inst)
     Value * result = inst->getOperand(0);
     Value * arg1 = inst->getOperand(1);
 
+    // 特殊处理：如果这个指令是ArraySliceInstruction
+    if (ArraySliceInstruction * sliceInst = dynamic_cast<ArraySliceInstruction *>(inst)) {
+        // ArraySliceInstruction：需要将地址传递给结果
+        Value * address = sliceInst->getAddress();
+
+        int32_t result_regId = result->getRegId();
+        int32_t addr_regId = address->getRegId();
+
+        if (result_regId != -1) {
+            // 结果是寄存器
+            if (addr_regId != -1) {
+                // 地址在寄存器中，直接移动
+                iloc.inst("mov", PlatformArm32::regName[result_regId],
+                         PlatformArm32::regName[addr_regId]);
+            } else {
+                // 地址在内存中，加载到寄存器
+                iloc.load_var(result_regId, address);
+            }
+        } else {
+            // 结果是内存，需要通过临时寄存器
+            int32_t temp_regno = simpleRegisterAllocator.Allocate();
+            if (addr_regId != -1) {
+                iloc.inst("mov", PlatformArm32::regName[temp_regno],
+                         PlatformArm32::regName[addr_regId]);
+            } else {
+                iloc.load_var(temp_regno, address);
+            }
+            iloc.store_var(temp_regno, result, ARM32_TMP_REG_NO);
+            simpleRegisterAllocator.free(temp_regno);
+        }
+
+        return;
+    }
+
+    // 特殊处理：如果源操作数是ArraySliceInstruction
+    if (ArraySliceInstruction * sliceInst = dynamic_cast<ArraySliceInstruction *>(arg1)) {
+        // ArraySliceInstruction作为源操作数：需要将地址传递给目标
+        Value * address = sliceInst->getAddress();
+
+        int32_t result_regId = result->getRegId();
+        int32_t addr_regId = address->getRegId();
+
+        if (result_regId != -1) {
+            // 结果是寄存器
+            if (addr_regId != -1) {
+                // 地址在寄存器中，直接移动
+                iloc.inst("mov", PlatformArm32::regName[result_regId],
+                         PlatformArm32::regName[addr_regId]);
+            } else {
+                // 地址在内存中，加载到寄存器
+                iloc.load_var(result_regId, address);
+            }
+        } else {
+            // 结果是内存，需要通过临时寄存器
+            int32_t temp_regno = simpleRegisterAllocator.Allocate();
+            if (addr_regId != -1) {
+                iloc.inst("mov", PlatformArm32::regName[temp_regno],
+                         PlatformArm32::regName[addr_regId]);
+            } else {
+                iloc.load_var(temp_regno, address);
+            }
+            iloc.store_var(temp_regno, result, ARM32_TMP_REG_NO);
+            simpleRegisterAllocator.free(temp_regno);
+        }
+
+        return;
+    }
+
+    // 正常的赋值处理
     int32_t arg1_regId = arg1->getRegId();
     int32_t result_regId = result->getRegId();
 
@@ -440,8 +520,8 @@ void InstSelectorArm32::translate_mod_int32(Instruction * inst)
     simpleRegisterAllocator.free(arg1);
     simpleRegisterAllocator.free(arg2);
     simpleRegisterAllocator.free(result);
-    simpleRegisterAllocator.free(nullptr);  // div_reg
-    simpleRegisterAllocator.free(nullptr);  // mul_reg
+    simpleRegisterAllocator.free(div_reg);  // 修复：释放div_reg
+    simpleRegisterAllocator.free(mul_reg);  // 修复：释放mul_reg
 }
 
 /// @brief 通用比较运算翻译
@@ -565,40 +645,30 @@ void InstSelectorArm32::translate_call(Instruction * inst)
         simpleRegisterAllocator.Allocate(2);
         simpleRegisterAllocator.Allocate(3);
 
-        // 前四个的后面参数采用栈传递
-        int esp = 0;
-        for (int32_t k = 4; k < operandNum; k++) {
-
-            auto arg = callInst->getOperand(k);
-
-            // 新建一个内存变量，用于栈传值到形参变量中
-            MemVariable * newVal = func->newMemVariable((Type *) PointerType::get(arg->getType()));
-            newVal->setMemoryAddr(ARM32_SP_REG_NO, esp);
-            esp += 4;
-
-            Instruction * assignInst = new MoveInstruction(func, newVal, arg);
-
-            // 翻译赋值指令
-            translate_assign(assignInst);
-
-            delete assignInst;
-        }
-
+        // 只处理前4个参数（寄存器传递）
+        // 栈参数已经在adjustFuncCallInsts阶段处理过了，不需要再处理
         for (int32_t k = 0; k < operandNum && k < 4; k++) {
 
             auto arg = callInst->getOperand(k);
 
-            // 检查实参的类型是否是临时变量。
-            // 如果是临时变量，该变量可更改为寄存器变量即可，或者设置寄存器号
-            // 如果不是，则必须开辟一个寄存器变量，然后赋值即可
+            // 直接将参数加载到对应的寄存器
+            int32_t arg_regId = arg->getRegId();
 
-            Instruction * assignInst = new MoveInstruction(func, PlatformArm32::intRegVal[k], arg);
-
-            // 翻译赋值指令
-            translate_assign(assignInst);
-
-            delete assignInst;
+            if (arg_regId != -1) {
+                // 参数已经在寄存器中
+                if (arg_regId != k) {
+                    // 需要移动到正确的寄存器
+                    iloc.inst("mov", PlatformArm32::regName[k], PlatformArm32::regName[arg_regId]);
+                }
+            } else {
+                // 参数在内存中，直接加载到目标寄存器
+                iloc.load_var(k, arg);
+            }
         }
+
+        // 注意：栈参数（第5个参数开始）已经在adjustFuncCallInsts阶段处理过了
+        // 那里已经创建了MoveInstruction将栈参数值存储到栈内存变量中
+        // 所以这里不需要再处理栈参数
     }
 
     iloc.call_fun(callInst->getName());
@@ -659,4 +729,149 @@ void InstSelectorArm32::translate_arg(Instruction * inst)
     }
 
     realArgCount++;
+}
+
+/// @brief 数组元素加载指令翻译成ARM32汇编
+/// @param inst IR指令
+void InstSelectorArm32::translate_load_array(Instruction * inst)
+{
+    // 转换为LoadArrayInstruction
+    LoadArrayInstruction * loadInst = dynamic_cast<LoadArrayInstruction *>(inst);
+    if (!loadInst) {
+        return;
+    }
+
+    // 获取操作数：数组基址和偏移量
+    Value * arrayBase = loadInst->getArrayBase();
+    Value * offset = loadInst->getOffset();
+
+    // 结果寄存器
+    int32_t result_reg_no = inst->getRegId();
+    int32_t load_result_reg_no;
+
+    // 如果结果不是寄存器，分配一个临时寄存器
+    if (result_reg_no == -1) {
+        load_result_reg_no = simpleRegisterAllocator.Allocate(inst);
+    } else {
+        load_result_reg_no = result_reg_no;
+    }
+
+    // 获取数组基址寄存器
+    int32_t base_reg_no = arrayBase->getRegId();
+    int32_t load_base_reg_no;
+
+    if (base_reg_no == -1) {
+        // 数组基址不在寄存器中，需要加载
+        load_base_reg_no = simpleRegisterAllocator.Allocate(arrayBase);
+        iloc.load_var(load_base_reg_no, arrayBase);
+    } else {
+        load_base_reg_no = base_reg_no;
+    }
+
+
+
+    // 获取偏移量寄存器
+    int32_t offset_reg_no = offset->getRegId();
+    int32_t load_offset_reg_no;
+
+    if (offset_reg_no == -1) {
+        // 偏移量不在寄存器中，需要加载
+        load_offset_reg_no = simpleRegisterAllocator.Allocate(offset);
+        iloc.load_var(load_offset_reg_no, offset);
+    } else {
+        load_offset_reg_no = offset_reg_no;
+    }
+
+    // 先计算地址：add temp_reg, base_reg, offset_reg
+    int32_t addr_reg_no = ARM32_TMP_REG_NO;  // 使用临时寄存器
+    iloc.inst("add",
+              PlatformArm32::regName[addr_reg_no],
+              PlatformArm32::regName[load_base_reg_no] + "," +
+              PlatformArm32::regName[load_offset_reg_no]);
+
+    // 然后用计算出的地址加载：ldr result_reg, [addr_reg]
+    iloc.inst("ldr",
+              PlatformArm32::regName[load_result_reg_no],
+              "[" + PlatformArm32::regName[addr_reg_no] + "]");
+
+    // 如果结果不是寄存器，需要存储到内存
+    if (result_reg_no == -1) {
+        iloc.store_var(load_result_reg_no, inst, ARM32_TMP_REG_NO);
+    }
+
+    // 释放分配的寄存器
+    simpleRegisterAllocator.free(arrayBase);
+    simpleRegisterAllocator.free(offset);
+    simpleRegisterAllocator.free(inst);
+}
+
+/// @brief 数组元素存储指令翻译成ARM32汇编
+/// @param inst IR指令
+void InstSelectorArm32::translate_store_array(Instruction * inst)
+{
+    // 转换为StoreArrayInstruction
+    StoreArrayInstruction * storeInst = dynamic_cast<StoreArrayInstruction *>(inst);
+    if (!storeInst) {
+        return;
+    }
+
+    // 获取操作数：要存储的值、数组基址和偏移量
+    Value * value = storeInst->getValue();
+    Value * arrayBase = storeInst->getArrayBase();
+    Value * offset = storeInst->getOffset();
+
+    // 获取要存储的值的寄存器
+    int32_t value_reg_no = value->getRegId();
+    int32_t load_value_reg_no;
+
+    if (value_reg_no == -1) {
+        // 值不在寄存器中，需要加载
+        load_value_reg_no = simpleRegisterAllocator.Allocate(value);
+        iloc.load_var(load_value_reg_no, value);
+    } else {
+        load_value_reg_no = value_reg_no;
+    }
+
+    // 获取数组基址寄存器
+    int32_t base_reg_no = arrayBase->getRegId();
+    int32_t load_base_reg_no;
+
+    if (base_reg_no == -1) {
+        // 数组基址不在寄存器中，需要加载
+        load_base_reg_no = simpleRegisterAllocator.Allocate(arrayBase);
+        iloc.load_var(load_base_reg_no, arrayBase);
+    } else {
+        load_base_reg_no = base_reg_no;
+    }
+
+
+
+    // 获取偏移量寄存器
+    int32_t offset_reg_no = offset->getRegId();
+    int32_t load_offset_reg_no;
+
+    if (offset_reg_no == -1) {
+        // 偏移量不在寄存器中，需要加载
+        load_offset_reg_no = simpleRegisterAllocator.Allocate(offset);
+        iloc.load_var(load_offset_reg_no, offset);
+    } else {
+        load_offset_reg_no = offset_reg_no;
+    }
+
+    // 先计算地址：add temp_reg, base_reg, offset_reg
+    int32_t addr_reg_no = ARM32_TMP_REG_NO;  // 使用临时寄存器
+    iloc.inst("add",
+              PlatformArm32::regName[addr_reg_no],
+              PlatformArm32::regName[load_base_reg_no] + "," +
+              PlatformArm32::regName[load_offset_reg_no]);
+
+    // 然后用计算出的地址存储：str value_reg, [addr_reg]
+    iloc.inst("str",
+              PlatformArm32::regName[load_value_reg_no],
+              "[" + PlatformArm32::regName[addr_reg_no] + "]");
+
+    // 释放分配的寄存器
+    simpleRegisterAllocator.free(value);
+    simpleRegisterAllocator.free(arrayBase);
+    simpleRegisterAllocator.free(offset);
 }

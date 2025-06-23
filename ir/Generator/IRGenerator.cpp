@@ -96,7 +96,6 @@ IRGenerator::IRGenerator(ast_node *_root, Module *_module) :
     ast2ir_handlers[ast_operator_type::AST_OP_DECL_STMT] = &IRGenerator::ir_declare_statment;
     ast2ir_handlers[ast_operator_type::AST_OP_VAR_DECL] = &IRGenerator::ir_variable_declare;
     ast2ir_handlers[ast_operator_type::AST_OP_ARRAY_ACCESS] = &IRGenerator::ir_array_access;
-    // ast2ir_handlers[ast_operator_type::AST_OP_ARRAY_DIMS] = &IRGenerator::ir_array_dims;
 
     /* 语句块 */
     ast2ir_handlers[ast_operator_type::AST_OP_BLOCK] = &IRGenerator::ir_block;
@@ -604,36 +603,15 @@ bool IRGenerator::ir_neg(ast_node *node) {
     // 函数作用域：生成运行时指令
     Value *zero = module->newConstInt(0);
 
+    // 添加操作数的IR
+    node->blockInsts.addInst(operand->blockInsts);
+
+    // 如果是布尔值，先转换为整数
     if (target->getType()->isInt1Byte()) {
-        // 如果是 i1（布尔值），转成 i32（手动跳转转化）
-        LabelInstruction *L_true = new LabelInstruction(cur);
-        LabelInstruction *L_false = new LabelInstruction(cur);
-        LabelInstruction *L_join = new LabelInstruction(cur);
-
-        Value *tmpInt = module->newVarValue(IntegerType::getTypeInt());
-
-        node->blockInsts.addInst(operand->blockInsts);
-        node->blockInsts.addInst(new GotoInstruction(cur, target, L_true, L_false));
-
-        // L_true
-        node->blockInsts.addInst(L_true);
-        node->blockInsts.addInst(new MoveInstruction(cur, tmpInt, module->newConstInt(1)));
-        node->blockInsts.addInst(new GotoInstruction(cur, L_join));
-
-        // L_false
-        node->blockInsts.addInst(L_false);
-        node->blockInsts.addInst(new MoveInstruction(cur, tmpInt, module->newConstInt(0)));
-        node->blockInsts.addInst(new GotoInstruction(cur, L_join));
-
-        // L_join:
-        node->blockInsts.addInst(L_join);
-
-        target = tmpInt;
-    } else {
-        // 正常 int 类型值，添加其 IR
-        node->blockInsts.addInst(operand->blockInsts);
+        target = convertBoolToInt(node, target);
     }
 
+    // 生成负号指令：0 - target
     BinaryInstruction *negInst = new BinaryInstruction(
         cur,
         IRInstOperator::IRINST_OP_SUB_I,
@@ -1061,7 +1039,15 @@ bool IRGenerator::ir_return(ast_node *node) {
     return true;
 }
 
+/// @brief if节点翻译成线性中间IR
+/// @param node AST节点
+/// @return 翻译是否成功，true：成功，false：失败
 bool IRGenerator::ir_if(ast_node *node) {
+    Function *cur = module->getCurrentFunction();
+    auto *L_then = new LabelInstruction(cur);
+    auto *L_else = new LabelInstruction(cur);
+    auto *L_end = new LabelInstruction(cur);
+    
     // sons[0]=cond, sons[1]=thenStmt, optional sons[2]=elseStmt
     ast_node *condNode = ir_visit_ast_node(node->sons[0]);
     if (!condNode) return false;
@@ -1080,15 +1066,11 @@ bool IRGenerator::ir_if(ast_node *node) {
         if (!elseNode) return false;
     }
 
-    Function *cur = module->getCurrentFunction();
-    auto *L_then = new LabelInstruction(cur);
-    auto *L_else = new LabelInstruction(cur);
-    auto *L_end = new LabelInstruction(cur);
-
-    // 1) 条件计算产生 cmp 指令
+    // 条件计算产生 cmp 指令
     node->blockInsts.addInst(condNode->blockInsts);
 
-    // 2) 根据 cond 跳转到 then 或 else
+    // 根据 cond 跳转到 then 或 else
+
     // 检查条件是否为常量
     if (ConstInt *constCond = dynamic_cast<ConstInt*>(condNode->val)) {
         // 常量条件优化
@@ -1101,14 +1083,10 @@ bool IRGenerator::ir_if(ast_node *node) {
         }
     } else {
         // 变量条件：生成条件跳转
-        node->blockInsts.addInst(
-            new GotoInstruction(cur,
-                                condNode->val,
-                                L_then,
-                                L_else));
+        node->blockInsts.addInst(new GotoInstruction(cur, condNode->val, L_then, L_else));
     }
 
-    // 3) then 分支
+    // then 分支
     node->blockInsts.addInst(L_then);
     if (thenNode != nullptr) {
         node->blockInsts.addInst(thenNode->blockInsts);
@@ -1116,7 +1094,7 @@ bool IRGenerator::ir_if(ast_node *node) {
     // 然后无条件跳到 end
     node->blockInsts.addInst(new GotoInstruction(cur, L_end));
 
-    // 4) else 分支
+    // else 分支
     node->blockInsts.addInst(L_else);
     if (hasElse && elseNode != nullptr) {
         node->blockInsts.addInst(elseNode->blockInsts);
@@ -1128,6 +1106,9 @@ bool IRGenerator::ir_if(ast_node *node) {
     return true;
 }
 
+/// @brief while节点翻译成线性中间IR
+/// @param node AST节点
+/// @return 翻译是否成功，true：成功，false：失败
 bool IRGenerator::ir_while(ast_node *node) {
     Function *cur = module->getCurrentFunction();
     auto *L_cond = new LabelInstruction(cur);
@@ -1151,6 +1132,7 @@ bool IRGenerator::ir_while(ast_node *node) {
     node->blockInsts.addInst(L_cond);
     node->blockInsts.addInst(condNode->blockInsts);
 
+    // 根据 cond 跳转到 body 或 end
     // 检查条件是否为常量
     if (ConstInt *constCond = dynamic_cast<ConstInt*>(condNode->val)) {
         // 常量条件优化
@@ -1181,6 +1163,9 @@ bool IRGenerator::ir_while(ast_node *node) {
     return true;
 }
 
+/// @brief break节点翻译成线性中间IR
+/// @param node AST节点
+/// @return 翻译是否成功，true：成功，false：失败
 bool IRGenerator::ir_break(ast_node *node) {
     Function *cur = module->getCurrentFunction();
     if (loopEndStack.empty()) {
@@ -1192,6 +1177,9 @@ bool IRGenerator::ir_break(ast_node *node) {
     return true;
 }
 
+/// @brief continue节点翻译成线性中间IR
+/// @param node AST节点
+/// @return 翻译是否成功，true：成功，false：失败
 bool IRGenerator::ir_continue(ast_node *node) {
     Function *cur = module->getCurrentFunction();
     if (loopCondStack.empty()) {

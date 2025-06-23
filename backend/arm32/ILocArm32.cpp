@@ -21,6 +21,10 @@
 #include "Function.h"
 #include "PlatformArm32.h"
 #include "Module.h"
+#include "GlobalVariable.h"
+#include "ConstInt.h"
+#include "ArrayType.h"
+#include "FormalParam.h"
 
 ArmInst::ArmInst(std::string _opcode,
                  std::string _result,
@@ -119,6 +123,7 @@ std::string ArmInst::outPut()
 ILocArm32::ILocArm32(Module * _module)
 {
     this->module = _module;
+    this->currentFunction = nullptr;  // 初始化当前函数指针
 }
 
 /// @brief 析构函数
@@ -380,11 +385,18 @@ void ILocArm32::load_var(int rs_reg_no, Value * src_var)
 
         // 读取全局变量的地址
         // movw r8, #:lower16:a
-        // movt r8, #:lower16:a
+        // movt r8, #:upper16:a
         load_symbol(rs_reg_no, globalVar->getName());
 
-        // ldr r8, [r8]
-        emit("ldr", PlatformArm32::regName[rs_reg_no], "[" + PlatformArm32::regName[rs_reg_no] + "]");
+        // 对于数组类型的全局变量，直接返回地址；对于标量类型，需要解引用
+        if (globalVar->getType()->isArrayType()) {
+            // 数组变量：直接返回地址，不需要解引用
+            // 地址已经在寄存器中了
+        } else {
+            // 标量变量：需要解引用获取值
+            // ldr r8, [r8]
+            emit("ldr", PlatformArm32::regName[rs_reg_no], "[" + PlatformArm32::regName[rs_reg_no] + "]");
+        }
 
     } else {
 
@@ -402,8 +414,54 @@ void ILocArm32::load_var(int rs_reg_no, Value * src_var)
         // 对于栈内分配的局部数组，可直接在栈指针上进行移动与运算
         // 但对于形参，其保存的是调用函数栈的数组的地址，需要读取出来
 
-        // ldr r8,[sp,#16]
-        load_base(rs_reg_no, var_baseRegId, var_offset);
+        // 检查是否为数组类型
+        if (src_var->getType()->isArrayType()) {
+            // 精确区分数组参数和局部数组变量
+            bool isArrayParam = false;
+
+            if (var_offset > 0) {
+                // 栈传递的数组参数：正偏移量
+                isArrayParam = true;
+            } else if (var_offset >= -16 && var_offset <= -4 && (var_offset % 4 == 0)) {
+                // 寄存器传递的数组参数：-4, -8, -12, -16
+                // 使用函数参数信息来精确判断
+                if (currentFunction != nullptr) {
+                    auto & params = currentFunction->getParams();
+                    int paramCount = std::min((int)params.size(), 4);  // 前4个参数通过寄存器传递
+
+                    // 计算偏移量对应的参数索引：-4对应第1个参数，-8对应第2个参数等
+                    int paramIndex = (-var_offset / 4) - 1;
+
+                    // 检查是否在有效的参数范围内，且对应的参数是数组类型
+                    if (paramIndex >= 0 && paramIndex < paramCount &&
+                        params[paramIndex]->getType()->isArrayType()) {
+                        isArrayParam = true;
+                    } else {
+                        isArrayParam = false;
+                    }
+                } else {
+                    // 没有函数信息，保守处理
+                    isArrayParam = false;
+                }
+            } else {
+                // 局部数组变量：其他负偏移量（通常 < -16）
+                isArrayParam = false;
+            }
+
+            if (isArrayParam) {
+                // 数组参数：是指针，需要从内存中加载地址
+                // ldr r8,[fp,#offset]
+                load_base(rs_reg_no, var_baseRegId, var_offset);
+            } else {
+                // 局部数组变量：计算数组的地址（栈上分配的数组）
+                // add r8, fp, #offset  或者  sub r8, fp, #-offset
+                leaStack(rs_reg_no, var_baseRegId, var_offset);
+            }
+        } else {
+            // 标量变量：从内存中加载值
+            // ldr r8,[fp,#offset]
+            load_base(rs_reg_no, var_baseRegId, var_offset);
+        }
     }
 }
 
@@ -553,4 +611,11 @@ void ILocArm32::nop()
 void ILocArm32::jump(std::string label)
 {
     emit("b", label);
+}
+
+/// @brief 设置当前正在处理的函数
+/// @param func 当前函数
+void ILocArm32::setCurrentFunction(Function * func)
+{
+    this->currentFunction = func;
 }

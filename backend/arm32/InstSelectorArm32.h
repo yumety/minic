@@ -114,6 +114,14 @@ protected:
     ///
     void translate_arg(Instruction * inst);
 
+    /// @brief 数组元素加载指令翻译成ARM32汇编
+    /// @param inst IR指令
+    void translate_load_array(Instruction * inst);
+
+    /// @brief 数组元素存储指令翻译成ARM32汇编
+    /// @param inst IR指令
+    void translate_store_array(Instruction * inst);
+
     ///
     /// @brief 输出IR指令
     ///

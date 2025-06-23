@@ -3,7 +3,8 @@
         {
             "name": "Linux",
             "includePath": [
-                "${workspaceFolder}/**"
+                "${workspaceFolder}/**",
+                "/usr/local/include/antlr4-runtime"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/clang",
